@@ -225,8 +225,9 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     // このcatchは主に予期せぬ内部エラー (上記で個別に処理されなかったもの) を捕捉
-    const errorMessage = error instanceof Error ? error.message : 'Unknown internal server error';
-    console.error(`[${timestamp}] /api/slack/intake: Unhandled internal error:`, errorMessage, error);
+    const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown internal server error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(`[${timestamp}] /api/slack/intake: Unhandled internal error:`, errorMessage, errorStack, error);
     return NextResponse.json({ error: 'Internal server error', details: errorMessage }, { status: 500 });
   }
 } 
