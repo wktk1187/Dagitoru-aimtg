@@ -1,16 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-// Supabaseのクライアント初期化 (環境変数からURLとanonキーを取得)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase URL or anon key environment variables for upload-url endpoint.');
-  // サーバー起動時のエラーとして記録。リクエスト処理時にはnullチェックで対応。
-}
-const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
-
 // 内部API呼び出し認証用のシークレットキー (環境変数から取得)
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
@@ -20,10 +10,15 @@ const SIGNED_URL_TTL = 60 * 30; // 署名付きURLの有効期間（秒）：30�
 export async function POST(request: NextRequest) {
   console.log(`[${new Date().toISOString()}] /api/upload-url: POST request received.`);
 
-  if (!supabase) {
-    console.error(`[${new Date().toISOString()}] /api/upload-url: Supabase client is not initialized due to missing env vars.`);
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    console.error(`[${new Date().toISOString()}] /api/upload-url: Missing Supabase URL or anon key environment variables.`);
     return NextResponse.json({ error: 'Server configuration error: Supabase client not available.' }, { status: 500 });
   }
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   // 1. 認可チェック
   const authHeader = request.headers.get('Authorization');
