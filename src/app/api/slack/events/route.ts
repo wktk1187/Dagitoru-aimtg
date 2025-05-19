@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'npm:next/server';
 import crypto from 'node:crypto';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
 import { Buffer } from 'node:buffer';
-import { v4 as uuidv4 } from 'uuid';
-import { WebClient } from "@slack/web-api";
+import { v4 as uuidv4 } from 'npm:uuid';
+import { WebClient } from "npm:@slack/web-api";
 
 const SLACK_SIGNING_SECRET = Deno.env.get("SLACK_SIGNING_SECRET");
 const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN");
