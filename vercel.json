@@ -8,5 +8,9 @@
   ],
   "env": {
     "NEXT_PUBLIC_SUPABASE_URL": "https://tqeprgfaybkvknmzeraj.supabase.co"
+  },
+  "regions": ["hnd1"],
+  "github": {
+    "silent": true
   }
 } 
