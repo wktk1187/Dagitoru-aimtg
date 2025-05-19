@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'npm:next/server';
 import { Client as NotionClient } from 'npm:@notionhq/client';
+import type { CreatePageParameters, BlockObjectRequest } from 'npm:@notionhq/client/build/src/api-endpoints';
 import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
 
 // 環境変数
@@ -15,6 +16,35 @@ const supabase: SupabaseClient | null = (NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SE
   : null;
 
 interface NotionSyncPayload { taskId: string; }
+
+interface TranscriptionTask {
+  id: string;
+  consultant_name?: string;
+  company_name?: string;
+  company_type?: string;
+  company_problem?: string;
+  meeting_date?: string;
+  meeting_count?: number;
+  meeting_type?: string; // lintで未使用指摘があったが、もし使うならこの型定義は残す
+  support_area?: string;
+  company_phase?: string;
+  internal_sharing_items?: string;
+  final_summary: string;
+  status: string;
+  error_message?: string;
+  notion_page_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface NotionDbMap {
+  id: string;
+  kind: 'all' | 'consultant' | 'company';
+  name: string;
+  page_id: string;
+  db_id: string;
+  updated_at: string;
+}
 
 export async function POST(req: NextRequest) {
   // 認可
@@ -34,7 +64,14 @@ export async function POST(req: NextRequest) {
   if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
 
   // 1. transcription_tasks 取得
-  const { data: task, error: tErr } = await supabase.from('transcription_tasks').select('*').eq('id', taskId).single();
+  const { data: taskData, error: tErr } = await supabase
+    .from('transcription_tasks')
+    .select('*')
+    .eq('id', taskId)
+    .single();
+
+  const task = taskData as TranscriptionTask | null;
+
   if (tErr || !task) {
     return NextResponse.json({ error: 'Task not found' }, { status: 404 });
   }
@@ -46,34 +83,47 @@ export async function POST(req: NextRequest) {
     company_problem = 'なし',
     meeting_date = 'なし',
     meeting_count,
-    meeting_type = 'エラー',
+    meeting_type: _meeting_type = 'エラー',
     support_area = 'エラー',
     company_phase = 'なし',
     internal_sharing_items = 'なし',
     final_summary,
-  } = task as any;
+  } = task;
 
   if (!final_summary) {
     return NextResponse.json({ error: 'final_summary missing' }, { status: 400 });
   }
 
   // 2. map 取得
-  const { data: maps, error: mErr } = await supabase.from('notion_db_map').select('*').in('kind', ['all','consultant','company']).in('name', [consultant_name, company_name, 'all']);
-  if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
+  const { data: mapsRaw, error: mErr } = await supabase
+    .from('notion_db_map')
+    .select('*')
+    .in('kind', ['all', 'consultant', 'company'])
+    .in('name', [consultant_name, company_name, 'all']);
 
-  const getDb = (kind: string, nameVal: string) => maps?.find((m: any) => m.kind === kind && m.name === nameVal);
+  if (mErr) {
+    return NextResponse.json({ error: mErr.message }, { status: 500 });
+  }
 
-  const allMap = getDb('all', 'all');
-  const consMap = getDb('consultant', consultant_name);
-  const compMap = getDb('company', company_name);
+  const maps = (mapsRaw ?? []) as NotionDbMap[];
+
+  const getDb = (
+    mapsArr: NotionDbMap[],
+    kind: 'all' | 'consultant' | 'company',
+    nameVal: string,
+  ): NotionDbMap | undefined => mapsArr.find((m) => m.kind === kind && m.name === nameVal);
+
+  const allMap = getDb(maps, 'all', 'all');
+  const consMap = getDb(maps, 'consultant', consultant_name);
+  const compMap = getDb(maps, 'company', company_name);
 
   if (!allMap || !consMap || !compMap) {
-    // update status notion_failed
     await supabase.from('transcription_tasks').update({ status: 'notion_failed', error_message: 'Mapping not found' }).eq('id', taskId);
     return NextResponse.json({ error: 'Mapping not found for some target DB' }, { status: 400 });
   }
 
-  const targets = [allMap, consMap, compMap];
+  // この時点で allMap, consMap, compMap は NotionDbMap 型であることが保証される
+  const targets: NotionDbMap[] = [allMap, consMap, compMap];
 
   const buildProperties = () => ({
     '面談日': { title: [{ text: { content: `${meeting_date}` } }] },
@@ -87,9 +137,9 @@ export async function POST(req: NextRequest) {
     '社内共有が必要な事項': { rich_text: [{ text: { content: internal_sharing_items || 'なし' } }] },
   });
 
-  const children: any = [
+  const children: BlockObjectRequest[] = [
     {
-      object: 'block',
+      type: 'paragraph',
       paragraph: {
         rich_text: [{ type: 'text', text: { content: final_summary } }],
       },
@@ -97,7 +147,8 @@ export async function POST(req: NextRequest) {
   ];
 
   const createPage = async (dbId: string) => {
-    return await notion.pages.create({ parent: { database_id: dbId }, properties: buildProperties(), children });
+    const properties = buildProperties() as CreatePageParameters['properties'];
+    return await notion.pages.create({ parent: { database_id: dbId }, properties, children });
   };
 
   try {
