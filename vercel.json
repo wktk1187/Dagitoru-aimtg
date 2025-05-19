@@ -2,13 +2,13 @@
   "version": 2,
   "functions": {
     "app/api/upload-url/route.ts": {
-      "runtime": "node"
+      "runtime": "nodejs18.x"
     },
     "app/api/slack/events/route.ts": {
-      "runtime": "edge"
+      "runtime": "edge-runtime"
     },
     "app/api/notion-sync/route.ts": {
-      "runtime": "edge"
+      "runtime": "edge-runtime"
     }
   }
 }
