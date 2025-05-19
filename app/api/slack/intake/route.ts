@@ -72,167 +72,177 @@ interface SlackIntakePayload {
 }
 
 export async function POST(request: NextRequest) {
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Request received.`);
-
-  const reqCloneForRawBody = request.clone();
-  const reqCloneForFormData = request.clone();
-  const rawBody = await reqCloneForRawBody.text();
-
-  const verificationRequest = new NextRequest(request.url, {
-    headers: request.headers,
-    body: Buffer.from(rawBody),
-    method: request.method,
-  });
-  if (!await verifySlackRequest(verificationRequest, rawBody)) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: Slack request verification failed.`);
-    return NextResponse.json({ error: 'Request verification failed' }, { status: 403 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Slack request verification successful.`);
-
-  const formData = await reqCloneForFormData.formData();
-  const file = formData.get('file') as File | null;
-  const payloadJson = formData.get('payload_json') as string | null;
-
-  if (!file || !payloadJson) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: Missing file or payload_json.`);
-    return NextResponse.json({ error: 'Missing file or payload_json' }, { status: 400 });
-  }
-
-  const { name: originalFileName, type: contentType } = file;
-  let slackPayload: SlackIntakePayload;
-  try {
-    slackPayload = JSON.parse(payloadJson);
-  } catch (e) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to parse payload_json.`, e);
-    return NextResponse.json({ error: 'Invalid payload_json format.' }, { status: 400 });
-  }
+  console.log(`[${new Date().toISOString()}] >>> /slack/intake called`);
   
-  // B案: payload_jsonからfile_idを取得し、files.infoを叩く
-  const fileId = slackPayload?.event?.files?.[0]?.id;
-  if (!fileId) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: File ID not found in payload_json (expected at event.files[0].id).`);
-    return NextResponse.json({ error: 'File ID not found in payload_json' }, { status: 400 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Extracted fileId: ${fileId}`);
-
-  if (!SLACK_BOT_TOKEN) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing SLACK_BOT_TOKEN for files.info API call.`);
-    return NextResponse.json({ error: 'Server configuration error for Slack API call' }, { status: 500 });
-  }
-
-  let slackFileUrl: string;
   try {
-    console.log(`[${new Date().toISOString()}] /api/slack/intake: Calling Slack files.info for fileId: ${fileId}`);
-    // Slack APIの files.info はGETメソッドでクエリパラメータで送信する方が一般的だが、POSTも受け付ける場合がある。
-    // ここではPOSTで application/json を試す。Slackドキュメントで推奨される方法を確認するのが最善。
-    // GET /api/files.info?file=<file_id> の方がより一般的かもしれない。
-    const fileInfoResponse = await fetch(`https://slack.com/api/files.info?file=${fileId}`, { // GETリクエストに変更
-      method: 'GET', // メソッドをGETに変更
-      headers: {
-        'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
-      },
-      // body: JSON.stringify({ file: fileId }), // GETなのでボディは不要
+    const reqCloneForRawBody = request.clone();
+    const reqCloneForFormData = request.clone();
+    const rawBody = await reqCloneForRawBody.text();
+    console.log(`[${new Date().toISOString()}] Raw body received:`, rawBody.substring(0, 200) + '...');
+
+    const verificationRequest = new NextRequest(request.url, {
+      headers: request.headers,
+      body: Buffer.from(rawBody),
+      method: request.method,
     });
 
-    if (!fileInfoResponse.ok) {
-      const errorBody = await fileInfoResponse.text();
-      console.error(`[${new Date().toISOString()}] /api/slack/intake: Slack files.info API call failed. Status: ${fileInfoResponse.status}, Body: ${errorBody}`);
-      return NextResponse.json({ error: 'Failed to get file info from Slack', details: errorBody }, { status: fileInfoResponse.status });
+    // Slack署名検証
+    if (!await verifySlackRequest(verificationRequest, rawBody)) {
+      console.error(`[${new Date().toISOString()}] Slack request verification failed. Headers:`, Object.fromEntries(request.headers.entries()));
+      return NextResponse.json({ error: 'Request verification failed' }, { status: 403 });
     }
-    const fileInfo = await fileInfoResponse.json();
-    slackFileUrl = fileInfo?.file?.url_private_download;
-    if (!slackFileUrl) {
-      console.warn(`[${new Date().toISOString()}] /api/slack/intake: url_private_download not found in files.info response. Response:`, JSON.stringify(fileInfo));
-      return NextResponse.json({ error: 'url_private_download not found in Slack file info' }, { status: 400 });
+    console.log(`[${new Date().toISOString()}] Slack request verification successful`);
+
+    const formData = await reqCloneForFormData.formData();
+    console.log(`[${new Date().toISOString()}] Form data keys:`, Array.from(formData.keys()));
+    
+    const file = formData.get('file') as File | null;
+    const payloadJson = formData.get('payload_json') as string | null;
+
+    if (!file || !payloadJson) {
+      console.error(`[${new Date().toISOString()}] Missing required fields. File: ${!!file}, PayloadJson: ${!!payloadJson}`);
+      return NextResponse.json({ error: 'Missing file or payload_json' }, { status: 400 });
     }
-    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched url_private_download: ${slackFileUrl}`);
+
+    let slackPayload: any;
+    try {
+      slackPayload = JSON.parse(payloadJson);
+      console.log(`[${new Date().toISOString()}] Parsed payload:`, slackPayload);
+    } catch (e) {
+      console.error(`[${new Date().toISOString()}] Failed to parse payload_json:`, e);
+      return NextResponse.json({ error: 'Invalid payload_json format' }, { status: 400 });
+    }
+
+    // B案: payload_jsonからfile_idを取得し、files.infoを叩く
+    const fileId = slackPayload?.event?.files?.[0]?.id;
+    if (!fileId) {
+      console.warn(`[${new Date().toISOString()}] /api/slack/intake: File ID not found in payload_json (expected at event.files[0].id).`);
+      return NextResponse.json({ error: 'File ID not found in payload_json' }, { status: 400 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Extracted fileId: ${fileId}`);
+
+    if (!SLACK_BOT_TOKEN) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing SLACK_BOT_TOKEN for files.info API call.`);
+      return NextResponse.json({ error: 'Server configuration error for Slack API call' }, { status: 500 });
+    }
+
+    let slackFileUrl: string;
+    try {
+      console.log(`[${new Date().toISOString()}] /api/slack/intake: Calling Slack files.info for fileId: ${fileId}`);
+      // Slack APIの files.info はGETメソッドでクエリパラメータで送信する方が一般的だが、POSTも受け付ける場合がある。
+      // ここではPOSTで application/json を試す。Slackドキュメントで推奨される方法を確認するのが最善。
+      // GET /api/files.info?file=<file_id> の方がより一般的かもしれない。
+      const fileInfoResponse = await fetch(`https://slack.com/api/files.info?file=${fileId}`, { // GETリクエストに変更
+        method: 'GET', // メソッドをGETに変更
+        headers: {
+          'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
+        },
+        // body: JSON.stringify({ file: fileId }), // GETなのでボディは不要
+      });
+
+      if (!fileInfoResponse.ok) {
+        const errorBody = await fileInfoResponse.text();
+        console.error(`[${new Date().toISOString()}] /api/slack/intake: Slack files.info API call failed. Status: ${fileInfoResponse.status}, Body: ${errorBody}`);
+        return NextResponse.json({ error: 'Failed to get file info from Slack', details: errorBody }, { status: fileInfoResponse.status });
+      }
+      const fileInfo = await fileInfoResponse.json();
+      slackFileUrl = fileInfo?.file?.url_private_download;
+      if (!slackFileUrl) {
+        console.warn(`[${new Date().toISOString()}] /api/slack/intake: url_private_download not found in files.info response. Response:`, JSON.stringify(fileInfo));
+        return NextResponse.json({ error: 'url_private_download not found in Slack file info' }, { status: 400 });
+      }
+      console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched url_private_download: ${slackFileUrl}`);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Error calling Slack files.info API: ${error instanceof Error ? error.message : String(error)}`);
+      return NextResponse.json({ error: 'Error fetching file info from Slack' }, { status: 500 });
+    }
+
+    // 1. 署名付きURLを取得 (スニペットのロジック)
+    if (!NEXT_PUBLIC_APP_URL || !WEBHOOK_SECRET) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET for internal API call.`);
+      return NextResponse.json({ error: 'Server configuration error for internal API call' }, { status: 500 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Requesting upload URL from /api/upload-url.`);
+    const uploadUrlResponse = await fetch(`${NEXT_PUBLIC_APP_URL}/api/upload-url`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileName: file.name, contentType: file.type }),
+    });
+
+    if (!uploadUrlResponse.ok) {
+      const errorBody = await uploadUrlResponse.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to get upload URL. Status: ${uploadUrlResponse.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to get upload URL', details: errorBody }, { status: uploadUrlResponse.status });
+    }
+
+    const { uploadUrl, storagePath } = await uploadUrlResponse.json();
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Received uploadUrl: ${uploadUrl}, storagePath: ${storagePath}`);
+
+    // 2. Slackからファイルをストリーム取得 (スニペットのロジック)
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Fetching file from Slack: ${slackFileUrl}`);
+    const slackRes = await fetch(slackFileUrl, {
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+    });
+
+    if (!slackRes.ok || !slackRes.body) {
+      const errorBody = await slackRes.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to download Slack file. Status: ${slackRes.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to download Slack file', details: errorBody }, { status: slackRes.status });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched file stream from Slack.`);
+
+    // 3. Supabase署名付きURLにストリーミングアップロード (スニペットのロジック)
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Streaming upload to Supabase: ${uploadUrl}`);
+    const supabaseUploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type,
+      },
+      body: slackRes.body, // ReadableStreamを直接渡す
+    });
+
+    if (!supabaseUploadRes.ok) {
+      const errorBody = await supabaseUploadRes.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to upload to Supabase. Status: ${supabaseUploadRes.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to upload to Supabase', details: errorBody }, { status: supabaseUploadRes.status });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully uploaded to Supabase. Path: ${storagePath}`);
+
+    // 4. Supabaseにタスク記録（スニペットのロジック、ただしクライアントは上部で初期化済みのものを使用）
+    if (!supabase) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Supabase client not initialized for DB operation.`);
+      return NextResponse.json({ error: 'Server configuration error: Supabase client not available for DB.' }, { status: 500 });
+    }
+    
+    const taskData = {
+      original_file_name: file.name,
+      slack_file_url: slackFileUrl, 
+      storage_path: storagePath,
+      status: 'uploaded',
+      consultant_name: slackPayload.consultantName ?? null,
+      company_name: slackPayload.companyName ?? null,
+      company_type: slackPayload.companyType ?? null,
+      company_problem: slackPayload.companyIssues ?? null,
+      meeting_date: slackPayload.meetingDate ?? null,
+      meeting_count: slackPayload.meetingCount ?? null,
+      meeting_type: slackPayload.meetingType ?? null,
+      support_area: slackPayload.supportArea ?? null,
+    };
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Inserting task into DB:`, taskData);
+    const { error: dbError } = await supabase.from('transcription_tasks').insert(taskData);
+
+    if (dbError) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to insert task to DB:`, dbError);
+      return NextResponse.json({ error: 'Failed to insert task', details: dbError.message }, { status: 500 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully.`);
+
+    return NextResponse.json({ message: 'Upload successful and task created', storagePath });
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Error calling Slack files.info API: ${error instanceof Error ? error.message : String(error)}`);
-    return NextResponse.json({ error: 'Error fetching file info from Slack' }, { status: 500 });
+    console.error(`[${new Date().toISOString()}] /api/slack/intake: Error processing request:`, error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
-
-  // 1. 署名付きURLを取得 (スニペットのロジック)
-  if (!NEXT_PUBLIC_APP_URL || !WEBHOOK_SECRET) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET for internal API call.`);
-    return NextResponse.json({ error: 'Server configuration error for internal API call' }, { status: 500 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Requesting upload URL from /api/upload-url.`);
-  const uploadUrlResponse = await fetch(`${NEXT_PUBLIC_APP_URL}/api/upload-url`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${WEBHOOK_SECRET}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ fileName: originalFileName, contentType }),
-  });
-
-  if (!uploadUrlResponse.ok) {
-    const errorBody = await uploadUrlResponse.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to get upload URL. Status: ${uploadUrlResponse.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to get upload URL', details: errorBody }, { status: uploadUrlResponse.status });
-  }
-
-  const { uploadUrl, storagePath } = await uploadUrlResponse.json();
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Received uploadUrl: ${uploadUrl}, storagePath: ${storagePath}`);
-
-  // 2. Slackからファイルをストリーム取得 (スニペットのロジック)
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Fetching file from Slack: ${slackFileUrl}`);
-  const slackRes = await fetch(slackFileUrl, {
-    headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-  });
-
-  if (!slackRes.ok || !slackRes.body) {
-    const errorBody = await slackRes.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to download Slack file. Status: ${slackRes.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to download Slack file', details: errorBody }, { status: slackRes.status });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched file stream from Slack.`);
-
-  // 3. Supabase署名付きURLにストリーミングアップロード (スニペットのロジック)
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Streaming upload to Supabase: ${uploadUrl}`);
-  const supabaseUploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': contentType,
-    },
-    body: slackRes.body, // ReadableStreamを直接渡す
-  });
-
-  if (!supabaseUploadRes.ok) {
-    const errorBody = await supabaseUploadRes.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to upload to Supabase. Status: ${supabaseUploadRes.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to upload to Supabase', details: errorBody }, { status: supabaseUploadRes.status });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully uploaded to Supabase. Path: ${storagePath}`);
-
-  // 4. Supabaseにタスク記録（スニペットのロジック、ただしクライアントは上部で初期化済みのものを使用）
-  if (!supabase) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Supabase client not initialized for DB operation.`);
-    return NextResponse.json({ error: 'Server configuration error: Supabase client not available for DB.' }, { status: 500 });
-  }
-  
-  const taskData = {
-    original_file_name: originalFileName,
-    slack_file_url: slackFileUrl, 
-    storage_path: storagePath,
-    status: 'uploaded',
-    consultant_name: slackPayload.consultantName ?? null,
-    company_name: slackPayload.companyName ?? null,
-    company_type: slackPayload.companyType ?? null,
-    company_problem: slackPayload.companyIssues ?? null,
-    meeting_date: slackPayload.meetingDate ?? null,
-    meeting_count: slackPayload.meetingCount ?? null,
-    meeting_type: slackPayload.meetingType ?? null,
-    support_area: slackPayload.supportArea ?? null,
-  };
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Inserting task into DB:`, taskData);
-  const { error: dbError } = await supabase.from('transcription_tasks').insert(taskData);
-
-  if (dbError) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to insert task to DB:`, dbError);
-    return NextResponse.json({ error: 'Failed to insert task', details: dbError.message }, { status: 500 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully.`);
-
-  return NextResponse.json({ message: 'Upload successful and task created', storagePath });
 } 

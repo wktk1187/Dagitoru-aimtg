@@ -52,11 +52,15 @@ app/api/slack/events/route.ts
 app/api/slack/intake/route.ts
 app/api/summarize-task/route.ts
 app/api/upload-url/route.ts
+app/globals.css
 app/lib/supabase-client.ts
 app/scripts/upload-slack-file.ts
 app/utils/slack-to-supabase-uploader.ts
 deno.lock
 docs/slack_video_summary_spec_detailed.md
+next-env.d.ts
+package.json
+postcss.config.js
 README.md
 supabase/.branches/_current_branch
 supabase/.temp/cli-latest
@@ -77,6 +81,7 @@ supabase/functions/upload_file_to_storage/index.ts
 supabase/migrations/20231105_create_upload_logs.sql
 supabase/migrations/20250517181202_remote_schema.sql
 supabase/migrations/20250517181203_create_transcription_task_trigger.sql
+tailwind.config.js
 tsconfig.json
 
 ================================================================
@@ -91,524 +96,20 @@ File: .repomix/bundles.json
 }
 
 ================
-File: app/api/slack/intake/route.ts
+File: app/globals.css
 ================
-import { NextRequest, NextResponse } from 'npm:next/server';
-import crypto from 'node:crypto';
-import { Buffer } from 'node:buffer';
-import { createClient } from 'npm:@supabase/supabase-js';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-// 環境変数
-const SLACK_SIGNING_SECRET = Deno.env.get("SLACK_SIGNING_SECRET");
-const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN"); 
-const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET"); 
-const NEXT_PUBLIC_APP_URL = Deno.env.get("NEXT_PUBLIC_APP_URL"); 
-
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get("NEXT_PUBLIC_SUPABASE_URL");
-const NEXT_PUBLIC_SUPABASE_ANON_KEY = Deno.env.get("NEXT_PUBLIC_SUPABASE_ANON_KEY");
-
-let supabase: ReturnType<typeof createClient> | null = null;
-if (NEXT_PUBLIC_SUPABASE_URL && NEXT_PUBLIC_SUPABASE_ANON_KEY) {
-  supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY);
-} else {
-  console.error('[intake/route.ts] Missing Supabase URL or anon key env vars.');
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-rgb: 255, 255, 255;
 }
 
-// Slackリクエスト署名検証関数 (既存のものを流用または配置)
-async function verifySlackRequest(request: NextRequest, rawBody: string): Promise<boolean> {
-  if (!SLACK_SIGNING_SECRET) {
-    console.error('[verifySlackRequest] Slack Signing Secret is not defined.');
-    return false;
-  }
-  const signature = request.headers.get('x-slack-signature');
-  const timestamp = request.headers.get('x-slack-request-timestamp');
-  if (!signature || !timestamp) {
-    console.warn('[verifySlackRequest] Missing signature or timestamp headers.');
-    return false;
-  }
-  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
-  if (parseInt(timestamp, 10) < fiveMinutesAgo) {
-    console.warn('[verifySlackRequest] Timestamp is too old.');
-    return false;
-  }
-  const sigBasestring = `v0:${timestamp}:${rawBody}`;
-  const mySignature = `v0=${crypto
-    .createHmac('sha256', SLACK_SIGNING_SECRET)
-    .update(sigBasestring, 'utf8')
-    .digest('hex')}`;
-  try {
-    return crypto.timingSafeEqual(Buffer.from(mySignature, 'utf8'), Buffer.from(signature, 'utf8'));
-  } catch (e) {
-    console.error('[verifySlackRequest] Error during timingSafeEqual:', e);
-    return false;
-  }
-}
-
-interface SlackIntakePayload {
-  consultantName?: string;
-  companyName?: string;
-  companyType?: string; // スタートアップ／中小企業／上場企業 など
-  companyIssues?: string;
-  meetingDate?: string; // YYYY-MM-DD 形式を期待
-  meetingCount?: number;
-  meetingType?: string;
-  supportArea?: string; // 支援領域
-  companyPhase?: string; // 企業のフェーズ
-  internalSharingItems?: string; // 社内共有が必要な事項
-  // Slackからのファイルイベント情報がここに含まれることを想定
-  event?: {
-    type?: string;
-    files?: {
-      id?: string; // file_id を期待
-      // url_private_download はここからは直接取得しない
-    }[];
-    // 他のイベント関連プロパティ
-  };
-}
-
-export async function POST(request: NextRequest) {
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Request received.`);
-
-  const reqCloneForRawBody = request.clone();
-  const reqCloneForFormData = request.clone();
-  const rawBody = await reqCloneForRawBody.text();
-
-  const verificationRequest = new NextRequest(request.url, {
-    headers: request.headers,
-    body: Buffer.from(rawBody),
-    method: request.method,
-  });
-  if (!await verifySlackRequest(verificationRequest, rawBody)) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: Slack request verification failed.`);
-    return NextResponse.json({ error: 'Request verification failed' }, { status: 403 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Slack request verification successful.`);
-
-  const formData = await reqCloneForFormData.formData();
-  const file = formData.get('file') as File | null;
-  const payloadJson = formData.get('payload_json') as string | null;
-
-  if (!file || !payloadJson) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: Missing file or payload_json.`);
-    return NextResponse.json({ error: 'Missing file or payload_json' }, { status: 400 });
-  }
-
-  const { name: originalFileName, type: contentType } = file;
-  let slackPayload: SlackIntakePayload;
-  try {
-    slackPayload = JSON.parse(payloadJson);
-  } catch (e) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to parse payload_json.`, e);
-    return NextResponse.json({ error: 'Invalid payload_json format.' }, { status: 400 });
-  }
-  
-  // B案: payload_jsonからfile_idを取得し、files.infoを叩く
-  const fileId = slackPayload?.event?.files?.[0]?.id;
-  if (!fileId) {
-    console.warn(`[${new Date().toISOString()}] /api/slack/intake: File ID not found in payload_json (expected at event.files[0].id).`);
-    return NextResponse.json({ error: 'File ID not found in payload_json' }, { status: 400 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Extracted fileId: ${fileId}`);
-
-  if (!SLACK_BOT_TOKEN) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing SLACK_BOT_TOKEN for files.info API call.`);
-    return NextResponse.json({ error: 'Server configuration error for Slack API call' }, { status: 500 });
-  }
-
-  let slackFileUrl: string;
-  try {
-    console.log(`[${new Date().toISOString()}] /api/slack/intake: Calling Slack files.info for fileId: ${fileId}`);
-    // Slack APIの files.info はGETメソッドでクエリパラメータで送信する方が一般的だが、POSTも受け付ける場合がある。
-    // ここではPOSTで application/json を試す。Slackドキュメントで推奨される方法を確認するのが最善。
-    // GET /api/files.info?file=<file_id> の方がより一般的かもしれない。
-    const fileInfoResponse = await fetch(`https://slack.com/api/files.info?file=${fileId}`, { // GETリクエストに変更
-      method: 'GET', // メソッドをGETに変更
-      headers: {
-        'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
-      },
-      // body: JSON.stringify({ file: fileId }), // GETなのでボディは不要
-    });
-
-    if (!fileInfoResponse.ok) {
-      const errorBody = await fileInfoResponse.text();
-      console.error(`[${new Date().toISOString()}] /api/slack/intake: Slack files.info API call failed. Status: ${fileInfoResponse.status}, Body: ${errorBody}`);
-      return NextResponse.json({ error: 'Failed to get file info from Slack', details: errorBody }, { status: fileInfoResponse.status });
-    }
-    const fileInfo = await fileInfoResponse.json();
-    slackFileUrl = fileInfo?.file?.url_private_download;
-    if (!slackFileUrl) {
-      console.warn(`[${new Date().toISOString()}] /api/slack/intake: url_private_download not found in files.info response. Response:`, JSON.stringify(fileInfo));
-      return NextResponse.json({ error: 'url_private_download not found in Slack file info' }, { status: 400 });
-    }
-    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched url_private_download: ${slackFileUrl}`);
-  } catch (error) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Error calling Slack files.info API: ${error instanceof Error ? error.message : String(error)}`);
-    return NextResponse.json({ error: 'Error fetching file info from Slack' }, { status: 500 });
-  }
-
-  // 1. 署名付きURLを取得 (スニペットのロジック)
-  if (!NEXT_PUBLIC_APP_URL || !WEBHOOK_SECRET) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET for internal API call.`);
-    return NextResponse.json({ error: 'Server configuration error for internal API call' }, { status: 500 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Requesting upload URL from /api/upload-url.`);
-  const uploadUrlResponse = await fetch(`${NEXT_PUBLIC_APP_URL}/api/upload-url`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${WEBHOOK_SECRET}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ fileName: originalFileName, contentType }),
-  });
-
-  if (!uploadUrlResponse.ok) {
-    const errorBody = await uploadUrlResponse.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to get upload URL. Status: ${uploadUrlResponse.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to get upload URL', details: errorBody }, { status: uploadUrlResponse.status });
-  }
-
-  const { uploadUrl, storagePath } = await uploadUrlResponse.json();
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Received uploadUrl: ${uploadUrl}, storagePath: ${storagePath}`);
-
-  // 2. Slackからファイルをストリーム取得 (スニペットのロジック)
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Fetching file from Slack: ${slackFileUrl}`);
-  const slackRes = await fetch(slackFileUrl, {
-    headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
-  });
-
-  if (!slackRes.ok || !slackRes.body) {
-    const errorBody = await slackRes.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to download Slack file. Status: ${slackRes.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to download Slack file', details: errorBody }, { status: slackRes.status });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched file stream from Slack.`);
-
-  // 3. Supabase署名付きURLにストリーミングアップロード (スニペットのロジック)
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Streaming upload to Supabase: ${uploadUrl}`);
-  const supabaseUploadRes = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': contentType,
-    },
-    body: slackRes.body, // ReadableStreamを直接渡す
-  });
-
-  if (!supabaseUploadRes.ok) {
-    const errorBody = await supabaseUploadRes.text();
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to upload to Supabase. Status: ${supabaseUploadRes.status}, Body: ${errorBody}`);
-    return NextResponse.json({ error: 'Failed to upload to Supabase', details: errorBody }, { status: supabaseUploadRes.status });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully uploaded to Supabase. Path: ${storagePath}`);
-
-  // 4. Supabaseにタスク記録（スニペットのロジック、ただしクライアントは上部で初期化済みのものを使用）
-  if (!supabase) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Supabase client not initialized for DB operation.`);
-    return NextResponse.json({ error: 'Server configuration error: Supabase client not available for DB.' }, { status: 500 });
-  }
-  
-  const taskData = {
-    original_file_name: originalFileName,
-    slack_file_url: slackFileUrl, 
-    storage_path: storagePath,
-    status: 'uploaded',
-    consultant_name: slackPayload.consultantName ?? null,
-    company_name: slackPayload.companyName ?? null,
-    company_type: slackPayload.companyType ?? null,
-    company_problem: slackPayload.companyIssues ?? null,
-    meeting_date: slackPayload.meetingDate ?? null,
-    meeting_count: slackPayload.meetingCount ?? null,
-    meeting_type: slackPayload.meetingType ?? null,
-    support_area: slackPayload.supportArea ?? null,
-  };
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Inserting task into DB:`, taskData);
-  const { error: dbError } = await supabase.from('transcription_tasks').insert(taskData);
-
-  if (dbError) {
-    console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to insert task to DB:`, dbError);
-    return NextResponse.json({ error: 'Failed to insert task', details: dbError.message }, { status: 500 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully.`);
-
-  return NextResponse.json({ message: 'Upload successful and task created', storagePath });
-}
-
-================
-File: app/api/summarize-task/route.ts
-================
-import { NextRequest, NextResponse } from 'npm:next/server';
-import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
-import { GoogleGenerativeAI } from 'npm:@google/generative-ai';
-
-// --- 環境変数 -----------------------------------------------------------------
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get("NEXT_PUBLIC_SUPABASE_URL");
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // DB更新用にService Role Keyを推奨
-const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const NEXT_PUBLIC_APP_URL = Deno.env.get("NEXT_PUBLIC_APP_URL");
-
-// --- 定数 -------------------------------------------------------------------
-const MAX_TRANSCRIPT_TOKENS = 15000; // 仮の値。実際のGeminiのモデルに合わせて調整。
-
-// --- Supabase クライアント初期化 -----------------------------------------------
-let supabase: SupabaseClient | null = null;
-if (NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
-  supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-    auth: {
-      persistSession: false, // サーバーサイドの処理なのでセッション永続化は不要
-      autoRefreshToken: false, // 自動トークンリフレッシュも不要
-    }
-  });
-} else {
-  console.error('[summarize-task/route.ts] Missing Supabase URL or Service Role Key env vars.');
-}
-
-// --- Gemini クライアント初期化 -------------------------------------------------
-let genAI: GoogleGenerativeAI | null = null;
-if (GEMINI_API_KEY) {
-  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-} else {
-  console.error('[summarize-task/route.ts] Missing GEMINI_API_KEY env var.');
-}
-
-// --- 型定義 -------------------------------------------------------------------
-interface SummarizeTaskPayload {
-  taskId: string;
-  transcript: string;
-  // metadataはSupabaseから取得するので、リクエストペイロードには含めない設計とします。
-  // もし呼び出し元がmetadataを渡す場合は、ここの型定義と処理を変更する必要があります。
-}
-
-interface TaskMetadata {
-  consultant_name?: string;
-  company_name?: string;
-  company_type?: string;
-  company_problem?: string;
-  meeting_date?: string;
-  meeting_count?: string | number; // DBの型に合わせて調整
-  meeting_type?: string;
-  support_area?: string;
-  // company_phase, internal_sharing_items も必要に応じて追加
-}
-
-// --- メイン処理 -----------------------------------------------------------------
-export async function POST(request: NextRequest) {
-  console.log(`[${new Date().toISOString()}] /api/summarize-task: POST request received.`);
-
-  // 1. 認可チェック (WEBHOOK_SECRET)
-  const authHeader = request.headers.get('Authorization');
-  if (!WEBHOOK_SECRET || !authHeader || !authHeader.startsWith('Bearer ') || authHeader.substring(7) !== WEBHOOK_SECRET) {
-    console.warn(`[${new Date().toISOString()}] /api/summarize-task: Unauthorized access attempt.`);
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  console.log(`[${new Date().toISOString()}] /api/summarize-task: Authorization successful.`);
-
-  // 2. SupabaseクライアントとGeminiクライアントの利用可能性チェック
-  if (!supabase) {
-    console.error(`[${new Date().toISOString()}] /api/summarize-task: Supabase client is not initialized.`);
-    return NextResponse.json({ error: 'Server configuration error: Supabase client not available.' }, { status: 500 });
-  }
-  // Geminiクライアントは後続のフェーズでチェックするが、ここでも存在確認は可能
-  if (!genAI) {
-    console.error(`[${new Date().toISOString()}] /api/summarize-task: Gemini AI client is not initialized.`);
-    return NextResponse.json({ error: 'Server configuration error: Gemini AI client not available.' }, { status: 500 });
-  }
-
-  // 3. リクエストボディのパース
-  let payload: SummarizeTaskPayload;
-  try {
-    payload = await request.json();
-    if (!payload.taskId || typeof payload.taskId !== 'string' || !payload.transcript || typeof payload.transcript !== 'string') {
-      throw new Error('Invalid request body: taskId and transcript are required and must be strings.');
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error parsing request body.';
-    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error parsing request body: ${errorMessage}`);
-    return NextResponse.json({ error: 'Invalid request body', details: errorMessage }, { status: 400 });
-  }
-  const { taskId, transcript } = payload;
-  console.log(`[${new Date().toISOString()}] /api/summarize-task: Parsed request for taskId: ${taskId}`);
-
-  // 4. Supabaseからタスクのメタ情報を取得
-  let taskMeta: TaskMetadata | null = null;
-  try {
-    const { data: metaData, error: metaError } = await supabase
-      .from('transcription_tasks')
-      .select('consultant_name, company_name, company_type, company_problem, meeting_date, meeting_count, meeting_type, support_area')
-      .eq('id', taskId)
-      .single();
-
-    if (metaError) {
-      if (metaError.code === 'PGRST116') { // PostgREST error code for "Not found"
-        console.warn(`[${new Date().toISOString()}] /api/summarize-task: Task not found in DB for taskId: ${taskId}`);
-        return NextResponse.json({ error: 'Task not found' }, { status: 404 });
-      }
-      throw metaError; // その他のDBエラー
-    }
-    taskMeta = metaData;
-    console.log(`[${new Date().toISOString()}] /api/summarize-task: Successfully fetched metadata for taskId ${taskId}:`, taskMeta);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown DB error.';
-    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error fetching metadata from DB for taskId ${taskId}: ${errorMessage}`);
-    return NextResponse.json({ error: 'Failed to fetch task metadata', details: errorMessage }, { status: 500 });
-  }
-
-  // 5. タスクステータスを 'summarizing' に更新
-  try {
-    const { error: updateError } = await supabase
-      .from('transcription_tasks')
-      .update({ status: 'summarizing', updated_at: new Date().toISOString() })
-      .eq('id', taskId);
-
-    if (updateError) {
-      throw updateError;
-    }
-    console.log(`[${new Date().toISOString()}] /api/summarize-task: Successfully updated status to 'summarizing' for taskId: ${taskId}`);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown DB error during status update.';
-    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error updating status to summarizing for taskId ${taskId}: ${errorMessage}`);
-    // ここでリターンしても良いが、後続の処理でエラーが発生した場合の最終的なステータス更新もあるため、一旦処理を続けることも考えられる。
-    // ただし、致命的な場合はリターンすべき。
-    return NextResponse.json({ error: 'Failed to update task status', details: errorMessage }, { status: 500 });
-  }
-
-  // --- ここまでが初弾 --- 
-  // この後、トランスクリプトの前処理、Gemini Phase 1-4の実行、結果保存、最終ステータス更新が続く
-
-  console.log(`[${new Date().toISOString()}] /api/summarize-task: Initial processing complete for taskId: ${taskId}. Transcript length: ${transcript.length}`);
-  console.log("Task Metadata:", taskMeta);
-
-  // -------- トランスクリプトのトリミング -----------------------------
-  // Geminiのトークン上限に合わせて部分文字列を取得（おおよそ1トークン=4文字と仮定）
-  const approxCharLimit = MAX_TRANSCRIPT_TOKENS * 4;
-  const trimmedTranscript = transcript.length > approxCharLimit
-    ? transcript.slice(-approxCharLimit)
-    : transcript;
-
-  // -------- Gemini による各フェーズの処理 ----------------------------
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-  const metaPrompt = (meta: TaskMetadata | null) => {
-    if (!meta) return "";
-    const entries = Object.entries(meta)
-      .filter(([_, v]) => v !== null && v !== undefined && v !== "")
-      .map(([k, v]) => `- ${k}: ${v}`)
-      .join("\n");
-    return entries ? `以下はミーティングのメタ情報です:\n${entries}\n` : "";
-  };
-
-  type PhaseResult = {
-    json: any;
-    rawText: string;
-  };
-
-  const runPhase = async (phase: "phase1" | "phase2" | "phase3", meta: TaskMetadata | null, transcriptChunk: string): Promise<PhaseResult> => {
-    let instruction = "";
-    switch (phase) {
-      case "phase1":
-        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n「議事の要点」を日本語で箇条書き（最大10項目）にまとめ、以下のJSON形式で返してください。\n{\n  \"key_points\": string[]\n}`;
-        break;
-      case "phase2":
-        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n以下の文字起こしを論理的な章立て（アジェンダ）に分割し、各章タイトルを生成してください。JSON形式:\n{\n  \"sections\": { \"title\": string, \"summary\": string }[]\n}`;
-        break;
-      case "phase3":
-        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n以下の文字起こしを話者ごとにまとめ、各話者ごとに発言要約を作成し、重要ポイントを抽出してください。JSON形式:\n{\n  \"speakers\": { \"name\": string, \"summary\": string }[]\n}`;
-        break;
-    }
-
-    const prompt = `${instruction}\n--- 文字起こしここから ---\n${transcriptChunk}\n--- 文字起こしここまで ---`;
-
-    try {
-      const result = await model.generateContent(prompt);
-      const raw = result.response.text();
-      const firstJsonMatch = raw.match(/\{[\s\S]*\}/);
-      if (!firstJsonMatch) throw new Error("JSON not found in model output");
-      const parsed = JSON.parse(firstJsonMatch[0]);
-      return { json: parsed, rawText: raw };
-    } catch (err) {
-      console.error(`[summarize-task] ${phase} failed:`, err);
-      throw new Error(`${phase}_failed`);
-    }
-  };
-
-  let phase1: PhaseResult | null = null;
-  let phase2: PhaseResult | null = null;
-  let phase3: PhaseResult | null = null;
-
-  try {
-    [phase1, phase2, phase3] = await Promise.all([
-      runPhase("phase1", taskMeta, trimmedTranscript),
-      runPhase("phase2", taskMeta, trimmedTranscript),
-      runPhase("phase3", taskMeta, trimmedTranscript),
-    ]);
-    console.log(`[summarize-task] Phase1-3 completed for taskId ${taskId}`);
-  } catch (e) {
-    // いずれかのフェーズで失敗
-    const errMsg = e instanceof Error ? e.message : String(e);
-    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
-    return NextResponse.json({ error: 'Summarization failed', details: errMsg }, { status: 500 });
-  }
-
-  // -------- Phase4: 統合 -----------------------------------------------
-  let finalSummary = "";
-  try {
-    const consolidationPrompt = `あなたはプロのコンサルタントです。与えられたフェーズ1-3の結果をもとに、ミーティング議事録を日本語で1000字以内のMarkdownにまとめてください。\n\n## メタ情報\n${metaPrompt(taskMeta)}\n\n## フェーズ1 要点\n${JSON.stringify(phase1.json)}\n\n## フェーズ2 章立て\n${JSON.stringify(phase2.json)}\n\n## フェーズ3 話者別まとめ\n${JSON.stringify(phase3.json)}\n\n## 出力フォーマット\n- タイトル行として \"# 議事メモ\" を含める\n- 適切なMarkdown見出しを用いる\n- 1000字以内に収める`;
-
-    const phase4Res = await model.generateContent(consolidationPrompt);
-    finalSummary = phase4Res.response.text();
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(`[summarize-task] Phase4 failed:`, errMsg);
-    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
-    return NextResponse.json({ error: 'Final summary generation failed', details: errMsg }, { status: 500 });
-  }
-
-  // -------- Supabase への保存 ---------------------------------------------
-  try {
-    const { error: saveError } = await supabase.from('transcription_tasks').update({
-      phase1_output: phase1.json,
-      phase2_output: phase2.json,
-      phase3_output: phase3.json,
-      final_summary: finalSummary,
-      status: 'completed',
-      updated_at: new Date().toISOString(),
-    }).eq('id', taskId);
-
-    if (saveError) throw saveError;
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : 'Unknown DB error';
-    console.error(`[summarize-task] DB save failed for taskId ${taskId}:`, errMsg);
-    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
-    return NextResponse.json({ error: 'Failed to save summary', details: errMsg }, { status: 500 });
-  }
-
-  // -------- 完了 -----------------------------------------------------------
-  console.log(`[summarize-task] All phases completed for taskId ${taskId}`);
-  return NextResponse.json({
-    message: 'Summarization completed',
-    taskId,
-    phase1: phase1.json,
-    phase2: phase2.json,
-    phase3: phase3.json,
-    finalSummary,
-  });
-
-  // -------- Notion 連携を非同期で呼び出し -------------------------------
-  try {
-    if (NEXT_PUBLIC_APP_URL && WEBHOOK_SECRET) {
-      fetch(`${NEXT_PUBLIC_APP_URL}/api/notion-sync`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${WEBHOOK_SECRET}`,
-        },
-        body: JSON.stringify({ taskId }),
-      }).then(res => res.text()).then(txt => console.log(`[summarize-task] notion-sync response:`, txt)).catch(err => console.error(`[summarize-task] notion-sync fetch error:`, err));
-    } else {
-      console.warn('[summarize-task] NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET not set; skipping notion-sync call.');
-    }
-  } catch (err) {
-    console.error('[summarize-task] Error triggering notion-sync:', err);
-  }
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
 }
 
 ================
@@ -640,82 +141,6 @@ export const supabaseAdmin = supabaseUrl && supabaseServiceKey
       }
     }) 
   : null;
-
-================
-File: app/scripts/upload-slack-file.ts
-================
-#!/usr/bin/env node
-import { config } from 'dotenv';
-import { uploadSlackFileToSupabase } from '../utils/slack-to-supabase-uploader.ts';
-
-// .envから環境変数を読み込む
-config();
-
-async function main() {
-  // コマンドライン引数からSlackファイルURLを取得
-  const slackFileUrl = process.argv[2];
-  
-  if (!slackFileUrl) {
-    console.error('エラー: Slackファイル URL が必要です');
-    console.error('使用方法: npm run upload-slack <slack-file-url>');
-    console.error('例: npm run upload-slack https://files.slack.com/files-pri/T12345-F67890/meeting.mp4');
-    process.exit(1);
-  }
-  
-  // 必要な環境変数のチェック
-  const requiredEnvVars = [
-    'SLACK_BOT_TOKEN',
-    'UPLOAD_API_ENDPOINT',
-    'WEBHOOK_SECRET',
-  ];
-  
-  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
-  if (missingVars.length > 0) {
-    console.error(`エラー: 必要な環境変数が見つかりません: ${missingVars.join(', ')}`);
-    console.error('環境変数の設定または.envファイルを確認してください');
-    process.exit(1);
-  }
-  
-  try {
-    console.log(`🚀 Slackファイルのアップロード開始: ${slackFileUrl}`);
-    
-    const result = await uploadSlackFileToSupabase({
-      slackFileUrl,
-      slackToken: process.env.SLACK_BOT_TOKEN!,
-      uploadEndpoint: process.env.UPLOAD_API_ENDPOINT!,
-      webhookSecret: process.env.WEBHOOK_SECRET!,
-      logProgress: true,
-      maxRetries: 3,
-      metadata: {
-        cli_executed_at: new Date().toISOString(),
-        cli_version: '1.0.0'
-      }
-    });
-    
-    console.log('✅ アップロード正常終了!');
-    console.log('📊 アップロード詳細:');
-    console.log(`  - ID: ${result.id}`);
-    console.log(`  - ステータス: ${result.status}`);
-    console.log(`  - ストレージパス: ${result.storage_path}`);
-    console.log(`  - ファイルサイズ: ${result.file_size} バイト`);
-    
-    if (result.status === 'processing') {
-      console.log('\n🎬 次のステップ:');
-      console.log('  ファイルは正常にアップロードされ、現在は文字起こし処理待ちです。');
-      console.log('  処理状況は Supabase の upload_logs テーブルで確認できます。');
-    }
-    
-    // 処理が完了した場合のみ終了コード0
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ アップロード失敗:', error instanceof Error ? error.message : error);
-    // エラーの場合は終了コード1
-    process.exit(1);
-  }
-}
-
-// スクリプト実行
-main();
 
 ================
 File: app/utils/slack-to-supabase-uploader.ts
@@ -1173,6 +598,25 @@ File: docs/slack_video_summary_spec_detailed.md
 ### Slack Events API 受信エンドポイント
 
 ## データモデル
+
+================
+File: next-env.d.ts
+================
+/// <reference types="next" />
+/// <reference types="next/image-types/global" />
+
+// NOTE: This file should not be edited
+// see https://nextjs.org/docs/basic-features/typescript for more information.
+
+================
+File: postcss.config.js
+================
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
 
 ================
 File: supabase/.branches/_current_branch
@@ -2045,195 +1489,553 @@ create trigger on_new_transcription_task
   for each row execute procedure public.handle_new_transcription_task();
 
 ================
-File: tsconfig.json
+File: tailwind.config.js
 ================
-{
-  "compilerOptions": {
-    "target": "es2020",
-    "lib": ["dom", "dom.iterable", "esnext"],
-    "allowJs": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "forceConsistentCasingInFileNames": true,
-    "esModuleInterop": true,
-    "module": "commonjs",
-    "moduleResolution": "node",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["./*"]
-    }
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: '#0070f3',
+      },
+    },
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules"]
+  plugins: [],
 }
 
 ================
-File: app/api/notion-sync/route.ts
+File: app/api/slack/intake/route.ts
 ================
-import { NextRequest, NextResponse } from 'npm:next/server';
-import { Client as NotionClient } from 'npm:@notionhq/client';
-import type { CreatePageParameters, BlockObjectRequest } from 'npm:@notionhq/client/build/src/api-endpoints';
-import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { createClient } from '@supabase/supabase-js';
 
 // 環境変数
-const NOTION_API_KEY = Deno.env.get('NOTION_API_KEY');
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get('NEXT_PUBLIC_SUPABASE_URL');
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const WEBHOOK_SECRET = Deno.env.get('WEBHOOK_SECRET');
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN; 
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL; 
+const NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// 初期化
-const notion = NOTION_API_KEY ? new NotionClient({ auth: NOTION_API_KEY }) : null;
-const supabase: SupabaseClient | null = (NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
-  ? createClient(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
-  : null;
+let supabase: ReturnType<typeof createClient> | null = null;
+if (NEXT_PUBLIC_SUPABASE_URL && NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+  supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY);
+} else {
+  console.error('[intake/route.ts] Missing Supabase URL or anon key env vars.');
+}
 
-interface NotionSyncPayload { taskId: string; }
+// Slackリクエスト署名検証関数 (既存のものを流用または配置)
+async function verifySlackRequest(request: NextRequest, rawBody: string): Promise<boolean> {
+  if (!SLACK_SIGNING_SECRET) {
+    console.error('[verifySlackRequest] Slack Signing Secret is not defined.');
+    return false;
+  }
+  const signature = request.headers.get('x-slack-signature');
+  const timestamp = request.headers.get('x-slack-request-timestamp');
+  if (!signature || !timestamp) {
+    console.warn('[verifySlackRequest] Missing signature or timestamp headers.');
+    return false;
+  }
+  const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 60 * 5;
+  if (parseInt(timestamp, 10) < fiveMinutesAgo) {
+    console.warn('[verifySlackRequest] Timestamp is too old.');
+    return false;
+  }
+  const sigBasestring = `v0:${timestamp}:${rawBody}`;
+  const mySignature = `v0=${crypto
+    .createHmac('sha256', SLACK_SIGNING_SECRET)
+    .update(sigBasestring, 'utf8')
+    .digest('hex')}`;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(mySignature, 'utf8'), Buffer.from(signature, 'utf8'));
+  } catch (e) {
+    console.error('[verifySlackRequest] Error during timingSafeEqual:', e);
+    return false;
+  }
+}
 
-interface TranscriptionTask {
-  id: string;
+interface SlackIntakePayload {
+  consultantName?: string;
+  companyName?: string;
+  companyType?: string; // スタートアップ／中小企業／上場企業 など
+  companyIssues?: string;
+  meetingDate?: string; // YYYY-MM-DD 形式を期待
+  meetingCount?: number;
+  meetingType?: string;
+  supportArea?: string; // 支援領域
+  companyPhase?: string; // 企業のフェーズ
+  internalSharingItems?: string; // 社内共有が必要な事項
+  // Slackからのファイルイベント情報がここに含まれることを想定
+  event?: {
+    type?: string;
+    files?: {
+      id?: string; // file_id を期待
+      // url_private_download はここからは直接取得しない
+    }[];
+    // 他のイベント関連プロパティ
+  };
+}
+
+export async function POST(request: NextRequest) {
+  console.log(`[${new Date().toISOString()}] >>> /slack/intake called`);
+  
+  try {
+    const reqCloneForRawBody = request.clone();
+    const reqCloneForFormData = request.clone();
+    const rawBody = await reqCloneForRawBody.text();
+    console.log(`[${new Date().toISOString()}] Raw body received:`, rawBody.substring(0, 200) + '...');
+
+    const verificationRequest = new NextRequest(request.url, {
+      headers: request.headers,
+      body: Buffer.from(rawBody),
+      method: request.method,
+    });
+
+    // Slack署名検証
+    if (!await verifySlackRequest(verificationRequest, rawBody)) {
+      console.error(`[${new Date().toISOString()}] Slack request verification failed. Headers:`, Object.fromEntries(request.headers.entries()));
+      return NextResponse.json({ error: 'Request verification failed' }, { status: 403 });
+    }
+    console.log(`[${new Date().toISOString()}] Slack request verification successful`);
+
+    const formData = await reqCloneForFormData.formData();
+    console.log(`[${new Date().toISOString()}] Form data keys:`, Array.from(formData.keys()));
+    
+    const file = formData.get('file') as File | null;
+    const payloadJson = formData.get('payload_json') as string | null;
+
+    if (!file || !payloadJson) {
+      console.error(`[${new Date().toISOString()}] Missing required fields. File: ${!!file}, PayloadJson: ${!!payloadJson}`);
+      return NextResponse.json({ error: 'Missing file or payload_json' }, { status: 400 });
+    }
+
+    let slackPayload: any;
+    try {
+      slackPayload = JSON.parse(payloadJson);
+      console.log(`[${new Date().toISOString()}] Parsed payload:`, slackPayload);
+    } catch (e) {
+      console.error(`[${new Date().toISOString()}] Failed to parse payload_json:`, e);
+      return NextResponse.json({ error: 'Invalid payload_json format' }, { status: 400 });
+    }
+
+    // B案: payload_jsonからfile_idを取得し、files.infoを叩く
+    const fileId = slackPayload?.event?.files?.[0]?.id;
+    if (!fileId) {
+      console.warn(`[${new Date().toISOString()}] /api/slack/intake: File ID not found in payload_json (expected at event.files[0].id).`);
+      return NextResponse.json({ error: 'File ID not found in payload_json' }, { status: 400 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Extracted fileId: ${fileId}`);
+
+    if (!SLACK_BOT_TOKEN) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing SLACK_BOT_TOKEN for files.info API call.`);
+      return NextResponse.json({ error: 'Server configuration error for Slack API call' }, { status: 500 });
+    }
+
+    let slackFileUrl: string;
+    try {
+      console.log(`[${new Date().toISOString()}] /api/slack/intake: Calling Slack files.info for fileId: ${fileId}`);
+      // Slack APIの files.info はGETメソッドでクエリパラメータで送信する方が一般的だが、POSTも受け付ける場合がある。
+      // ここではPOSTで application/json を試す。Slackドキュメントで推奨される方法を確認するのが最善。
+      // GET /api/files.info?file=<file_id> の方がより一般的かもしれない。
+      const fileInfoResponse = await fetch(`https://slack.com/api/files.info?file=${fileId}`, { // GETリクエストに変更
+        method: 'GET', // メソッドをGETに変更
+        headers: {
+          'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
+        },
+        // body: JSON.stringify({ file: fileId }), // GETなのでボディは不要
+      });
+
+      if (!fileInfoResponse.ok) {
+        const errorBody = await fileInfoResponse.text();
+        console.error(`[${new Date().toISOString()}] /api/slack/intake: Slack files.info API call failed. Status: ${fileInfoResponse.status}, Body: ${errorBody}`);
+        return NextResponse.json({ error: 'Failed to get file info from Slack', details: errorBody }, { status: fileInfoResponse.status });
+      }
+      const fileInfo = await fileInfoResponse.json();
+      slackFileUrl = fileInfo?.file?.url_private_download;
+      if (!slackFileUrl) {
+        console.warn(`[${new Date().toISOString()}] /api/slack/intake: url_private_download not found in files.info response. Response:`, JSON.stringify(fileInfo));
+        return NextResponse.json({ error: 'url_private_download not found in Slack file info' }, { status: 400 });
+      }
+      console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched url_private_download: ${slackFileUrl}`);
+    } catch (error) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Error calling Slack files.info API: ${error instanceof Error ? error.message : String(error)}`);
+      return NextResponse.json({ error: 'Error fetching file info from Slack' }, { status: 500 });
+    }
+
+    // 1. 署名付きURLを取得 (スニペットのロジック)
+    if (!NEXT_PUBLIC_APP_URL || !WEBHOOK_SECRET) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Missing NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET for internal API call.`);
+      return NextResponse.json({ error: 'Server configuration error for internal API call' }, { status: 500 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Requesting upload URL from /api/upload-url.`);
+    const uploadUrlResponse = await fetch(`${NEXT_PUBLIC_APP_URL}/api/upload-url`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fileName: file.name, contentType: file.type }),
+    });
+
+    if (!uploadUrlResponse.ok) {
+      const errorBody = await uploadUrlResponse.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to get upload URL. Status: ${uploadUrlResponse.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to get upload URL', details: errorBody }, { status: uploadUrlResponse.status });
+    }
+
+    const { uploadUrl, storagePath } = await uploadUrlResponse.json();
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Received uploadUrl: ${uploadUrl}, storagePath: ${storagePath}`);
+
+    // 2. Slackからファイルをストリーム取得 (スニペットのロジック)
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Fetching file from Slack: ${slackFileUrl}`);
+    const slackRes = await fetch(slackFileUrl, {
+      headers: { Authorization: `Bearer ${SLACK_BOT_TOKEN}` },
+    });
+
+    if (!slackRes.ok || !slackRes.body) {
+      const errorBody = await slackRes.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to download Slack file. Status: ${slackRes.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to download Slack file', details: errorBody }, { status: slackRes.status });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully fetched file stream from Slack.`);
+
+    // 3. Supabase署名付きURLにストリーミングアップロード (スニペットのロジック)
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Streaming upload to Supabase: ${uploadUrl}`);
+    const supabaseUploadRes = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': file.type,
+      },
+      body: slackRes.body, // ReadableStreamを直接渡す
+    });
+
+    if (!supabaseUploadRes.ok) {
+      const errorBody = await supabaseUploadRes.text();
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to upload to Supabase. Status: ${supabaseUploadRes.status}, Body: ${errorBody}`);
+      return NextResponse.json({ error: 'Failed to upload to Supabase', details: errorBody }, { status: supabaseUploadRes.status });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Successfully uploaded to Supabase. Path: ${storagePath}`);
+
+    // 4. Supabaseにタスク記録（スニペットのロジック、ただしクライアントは上部で初期化済みのものを使用）
+    if (!supabase) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Supabase client not initialized for DB operation.`);
+      return NextResponse.json({ error: 'Server configuration error: Supabase client not available for DB.' }, { status: 500 });
+    }
+    
+    const taskData = {
+      original_file_name: file.name,
+      slack_file_url: slackFileUrl, 
+      storage_path: storagePath,
+      status: 'uploaded',
+      consultant_name: slackPayload.consultantName ?? null,
+      company_name: slackPayload.companyName ?? null,
+      company_type: slackPayload.companyType ?? null,
+      company_problem: slackPayload.companyIssues ?? null,
+      meeting_date: slackPayload.meetingDate ?? null,
+      meeting_count: slackPayload.meetingCount ?? null,
+      meeting_type: slackPayload.meetingType ?? null,
+      support_area: slackPayload.supportArea ?? null,
+    };
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Inserting task into DB:`, taskData);
+    const { error: dbError } = await supabase.from('transcription_tasks').insert(taskData);
+
+    if (dbError) {
+      console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to insert task to DB:`, dbError);
+      return NextResponse.json({ error: 'Failed to insert task', details: dbError.message }, { status: 500 });
+    }
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully.`);
+
+    return NextResponse.json({ message: 'Upload successful and task created', storagePath });
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] /api/slack/intake: Error processing request:`, error instanceof Error ? error.message : String(error));
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+================
+File: app/api/summarize-task/route.ts
+================
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+// --- 環境変数 -----------------------------------------------------------------
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // DB更新用にService Role Keyを推奨
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+
+// --- 定数 -------------------------------------------------------------------
+const MAX_TRANSCRIPT_TOKENS = 15000; // 仮の値。実際のGeminiのモデルに合わせて調整。
+
+// --- Supabase クライアント初期化 -----------------------------------------------
+let supabase: SupabaseClient | null = null;
+if (NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
+  supabase = createClient(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: {
+      persistSession: false, // サーバーサイドの処理なのでセッション永続化は不要
+      autoRefreshToken: false, // 自動トークンリフレッシュも不要
+    }
+  });
+} else {
+  console.error('[summarize-task/route.ts] Missing Supabase URL or Service Role Key env vars.');
+}
+
+// --- Gemini クライアント初期化 -------------------------------------------------
+let genAI: GoogleGenerativeAI | null = null;
+if (GEMINI_API_KEY) {
+  genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+} else {
+  console.error('[summarize-task/route.ts] Missing GEMINI_API_KEY env var.');
+}
+
+// --- 型定義 -------------------------------------------------------------------
+interface SummarizeTaskPayload {
+  taskId: string;
+  transcript: string;
+  // metadataはSupabaseから取得するので、リクエストペイロードには含めない設計とします。
+  // もし呼び出し元がmetadataを渡す場合は、ここの型定義と処理を変更する必要があります。
+}
+
+interface TaskMetadata {
   consultant_name?: string;
   company_name?: string;
   company_type?: string;
   company_problem?: string;
   meeting_date?: string;
-  meeting_count?: number;
-  meeting_type?: string; // lintで未使用指摘があったが、もし使うならこの型定義は残す
+  meeting_count?: string | number; // DBの型に合わせて調整
+  meeting_type?: string;
   support_area?: string;
-  company_phase?: string;
-  internal_sharing_items?: string;
-  final_summary: string;
-  status: string;
-  error_message?: string;
-  notion_page_id?: string;
-  created_at?: string;
-  updated_at?: string;
+  // company_phase, internal_sharing_items も必要に応じて追加
 }
 
-interface NotionDbMap {
-  id: string;
-  kind: 'all' | 'consultant' | 'company';
-  name: string;
-  page_id: string;
-  db_id: string;
-  updated_at: string;
-}
+// --- メイン処理 -----------------------------------------------------------------
+export async function POST(request: NextRequest) {
+  console.log(`[${new Date().toISOString()}] /api/summarize-task: POST request received.`);
 
-export async function POST(req: NextRequest) {
-  // 認可
-  if (!WEBHOOK_SECRET) return NextResponse.json({ error: 'Server misconfig' }, { status: 500 });
-  const auth = req.headers.get('Authorization');
-  if (!auth || !auth.startsWith('Bearer ') || auth.substring(7) !== WEBHOOK_SECRET) {
+  // 1. 認可チェック (WEBHOOK_SECRET)
+  const authHeader = request.headers.get('Authorization');
+  if (!WEBHOOK_SECRET || !authHeader || !authHeader.startsWith('Bearer ') || authHeader.substring(7) !== WEBHOOK_SECRET) {
+    console.warn(`[${new Date().toISOString()}] /api/summarize-task: Unauthorized access attempt.`);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  if (!supabase || !notion) {
-    return NextResponse.json({ error: 'Server not configured (supabase or notion)' }, { status: 500 });
+  console.log(`[${new Date().toISOString()}] /api/summarize-task: Authorization successful.`);
+
+  // 2. SupabaseクライアントとGeminiクライアントの利用可能性チェック
+  if (!supabase) {
+    console.error(`[${new Date().toISOString()}] /api/summarize-task: Supabase client is not initialized.`);
+    return NextResponse.json({ error: 'Server configuration error: Supabase client not available.' }, { status: 500 });
+  }
+  // Geminiクライアントは後続のフェーズでチェックするが、ここでも存在確認は可能
+  if (!genAI) {
+    console.error(`[${new Date().toISOString()}] /api/summarize-task: Gemini AI client is not initialized.`);
+    return NextResponse.json({ error: 'Server configuration error: Gemini AI client not available.' }, { status: 500 });
   }
 
-  let payload: NotionSyncPayload;
-  try { payload = await req.json(); }
-  catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-  const { taskId } = payload;
-  if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
+  // 3. リクエストボディのパース
+  let payload: SummarizeTaskPayload;
+  try {
+    payload = await request.json();
+    if (!payload.taskId || typeof payload.taskId !== 'string' || !payload.transcript || typeof payload.transcript !== 'string') {
+      throw new Error('Invalid request body: taskId and transcript are required and must be strings.');
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error parsing request body.';
+    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error parsing request body: ${errorMessage}`);
+    return NextResponse.json({ error: 'Invalid request body', details: errorMessage }, { status: 400 });
+  }
+  const { taskId, transcript } = payload;
+  console.log(`[${new Date().toISOString()}] /api/summarize-task: Parsed request for taskId: ${taskId}`);
 
-  // 1. transcription_tasks 取得
-  const { data: taskData, error: tErr } = await supabase
-    .from('transcription_tasks')
-    .select('*')
-    .eq('id', taskId)
-    .single();
+  // 4. Supabaseからタスクのメタ情報を取得
+  let taskMeta: TaskMetadata | null = null;
+  try {
+    const { data: metaData, error: metaError } = await supabase
+      .from('transcription_tasks')
+      .select('consultant_name, company_name, company_type, company_problem, meeting_date, meeting_count, meeting_type, support_area')
+      .eq('id', taskId)
+      .single();
 
-  const task = taskData as TranscriptionTask | null;
-
-  if (tErr || !task) {
-    return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+    if (metaError) {
+      if (metaError.code === 'PGRST116') { // PostgREST error code for "Not found"
+        console.warn(`[${new Date().toISOString()}] /api/summarize-task: Task not found in DB for taskId: ${taskId}`);
+        return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+      }
+      throw metaError; // その他のDBエラー
+    }
+    taskMeta = metaData;
+    console.log(`[${new Date().toISOString()}] /api/summarize-task: Successfully fetched metadata for taskId ${taskId}:`, taskMeta);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown DB error.';
+    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error fetching metadata from DB for taskId ${taskId}: ${errorMessage}`);
+    return NextResponse.json({ error: 'Failed to fetch task metadata', details: errorMessage }, { status: 500 });
   }
 
-  const {
-    consultant_name = 'なし',
-    company_name = 'なし',
-    company_type = 'エラー',
-    company_problem = 'なし',
-    meeting_date = 'なし',
-    meeting_count,
-    meeting_type: _meeting_type = 'エラー',
-    support_area = 'エラー',
-    company_phase = 'なし',
-    internal_sharing_items = 'なし',
-    final_summary,
-  } = task;
+  // 5. タスクステータスを 'summarizing' に更新
+  try {
+    const { error: updateError } = await supabase
+      .from('transcription_tasks')
+      .update({ status: 'summarizing', updated_at: new Date().toISOString() })
+      .eq('id', taskId);
 
-  if (!final_summary) {
-    return NextResponse.json({ error: 'final_summary missing' }, { status: 400 });
+    if (updateError) {
+      throw updateError;
+    }
+    console.log(`[${new Date().toISOString()}] /api/summarize-task: Successfully updated status to 'summarizing' for taskId: ${taskId}`);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown DB error during status update.';
+    console.error(`[${new Date().toISOString()}] /api/summarize-task: Error updating status to summarizing for taskId ${taskId}: ${errorMessage}`);
+    // ここでリターンしても良いが、後続の処理でエラーが発生した場合の最終的なステータス更新もあるため、一旦処理を続けることも考えられる。
+    // ただし、致命的な場合はリターンすべき。
+    return NextResponse.json({ error: 'Failed to update task status', details: errorMessage }, { status: 500 });
   }
 
-  // 2. map 取得
-  const { data: mapsRaw, error: mErr } = await supabase
-    .from('notion_db_map')
-    .select('*')
-    .in('kind', ['all', 'consultant', 'company'])
-    .in('name', [consultant_name, company_name, 'all']);
+  // --- ここまでが初弾 --- 
+  // この後、トランスクリプトの前処理、Gemini Phase 1-4の実行、結果保存、最終ステータス更新が続く
 
-  if (mErr) {
-    return NextResponse.json({ error: mErr.message }, { status: 500 });
-  }
+  console.log(`[${new Date().toISOString()}] /api/summarize-task: Initial processing complete for taskId: ${taskId}. Transcript length: ${transcript.length}`);
+  console.log("Task Metadata:", taskMeta);
 
-  const maps = (mapsRaw ?? []) as NotionDbMap[];
+  // -------- トランスクリプトのトリミング -----------------------------
+  // Geminiのトークン上限に合わせて部分文字列を取得（おおよそ1トークン=4文字と仮定）
+  const approxCharLimit = MAX_TRANSCRIPT_TOKENS * 4;
+  const trimmedTranscript = transcript.length > approxCharLimit
+    ? transcript.slice(-approxCharLimit)
+    : transcript;
 
-  const getDb = (
-    mapsArr: NotionDbMap[],
-    kind: 'all' | 'consultant' | 'company',
-    nameVal: string,
-  ): NotionDbMap | undefined => mapsArr.find((m) => m.kind === kind && m.name === nameVal);
+  // -------- Gemini による各フェーズの処理 ----------------------------
+  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-  const allMap = getDb(maps, 'all', 'all');
-  const consMap = getDb(maps, 'consultant', consultant_name);
-  const compMap = getDb(maps, 'company', company_name);
-
-  if (!allMap || !consMap || !compMap) {
-    await supabase.from('transcription_tasks').update({ status: 'notion_failed', error_message: 'Mapping not found' }).eq('id', taskId);
-    return NextResponse.json({ error: 'Mapping not found for some target DB' }, { status: 400 });
-  }
-
-  // この時点で allMap, consMap, compMap は NotionDbMap 型であることが保証される
-  const targets: NotionDbMap[] = [allMap, consMap, compMap];
-
-  const buildProperties = () => ({
-    '面談日': { title: [{ text: { content: `${meeting_date}` } }] },
-    '企業名': { rich_text: [{ text: { content: company_name || 'なし' } }] },
-    'コンサルタント名': { rich_text: [{ text: { content: consultant_name || 'なし' } }] },
-    '企業タイプ': { status: { name: company_type || 'エラー' } },
-    '企業の課題': { rich_text: [{ text: { content: company_problem || 'なし' } }] },
-    '面談回数': { number: meeting_count ?? null },
-    '支援領域': { status: { name: support_area || 'エラー' } },
-    '企業のフェーズ': { rich_text: [{ text: { content: company_phase || 'なし' } }] },
-    '社内共有が必要な事項': { rich_text: [{ text: { content: internal_sharing_items || 'なし' } }] },
-  });
-
-  const children: BlockObjectRequest[] = [
-    {
-      type: 'paragraph',
-      paragraph: {
-        rich_text: [{ type: 'text', text: { content: final_summary } }],
-      },
-    },
-  ];
-
-  const createPage = async (dbId: string) => {
-    const properties = buildProperties() as CreatePageParameters['properties'];
-    return await notion.pages.create({ parent: { database_id: dbId }, properties, children });
+  const metaPrompt = (meta: TaskMetadata | null) => {
+    if (!meta) return "";
+    const entries = Object.entries(meta)
+      .filter(([_, v]) => v !== null && v !== undefined && v !== "")
+      .map(([k, v]) => `- ${k}: ${v}`)
+      .join("\n");
+    return entries ? `以下はミーティングのメタ情報です:\n${entries}\n` : "";
   };
 
+  type PhaseResult = {
+    json: any;
+    rawText: string;
+  };
+
+  const runPhase = async (phase: "phase1" | "phase2" | "phase3", meta: TaskMetadata | null, transcriptChunk: string): Promise<PhaseResult> => {
+    let instruction = "";
+    switch (phase) {
+      case "phase1":
+        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n「議事の要点」を日本語で箇条書き（最大10項目）にまとめ、以下のJSON形式で返してください。\n{\n  \"key_points\": string[]\n}`;
+        break;
+      case "phase2":
+        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n以下の文字起こしを論理的な章立て（アジェンダ）に分割し、各章タイトルを生成してください。JSON形式:\n{\n  \"sections\": { \"title\": string, \"summary\": string }[]\n}`;
+        break;
+      case "phase3":
+        instruction = `あなたは優秀な議事録作成アシスタントです。${metaPrompt(meta)}\n以下の文字起こしを話者ごとにまとめ、各話者ごとに発言要約を作成し、重要ポイントを抽出してください。JSON形式:\n{\n  \"speakers\": { \"name\": string, \"summary\": string }[]\n}`;
+        break;
+    }
+
+    const prompt = `${instruction}\n--- 文字起こしここから ---\n${transcriptChunk}\n--- 文字起こしここまで ---`;
+
+    try {
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text();
+      const firstJsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (!firstJsonMatch) throw new Error("JSON not found in model output");
+      const parsed = JSON.parse(firstJsonMatch[0]);
+      return { json: parsed, rawText: raw };
+    } catch (err) {
+      console.error(`[summarize-task] ${phase} failed:`, err);
+      throw new Error(`${phase}_failed`);
+    }
+  };
+
+  let phase1: PhaseResult | null = null;
+  let phase2: PhaseResult | null = null;
+  let phase3: PhaseResult | null = null;
+
   try {
-    const results = await Promise.all(targets.map(t => createPage(t.db_id)));
-    await supabase.from('transcription_tasks').update({ notion_page_id: JSON.stringify({ all: results[0].id, consultant: results[1].id, company: results[2].id }) }).eq('id', taskId);
-    return NextResponse.json({ message: 'Notion pages created', ids: results.map(r => r.id) });
+    [phase1, phase2, phase3] = await Promise.all([
+      runPhase("phase1", taskMeta, trimmedTranscript),
+      runPhase("phase2", taskMeta, trimmedTranscript),
+      runPhase("phase3", taskMeta, trimmedTranscript),
+    ]);
+    console.log(`[summarize-task] Phase1-3 completed for taskId ${taskId}`);
   } catch (e) {
-    await supabase.from('transcription_tasks').update({ status: 'notion_failed', error_message: (e as Error).message }).eq('id', taskId);
-    return NextResponse.json({ error: 'Failed to create notion pages', details: (e as Error).message }, { status: 500 });
+    // いずれかのフェーズで失敗
+    const errMsg = e instanceof Error ? e.message : String(e);
+    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
+    return NextResponse.json({ error: 'Summarization failed', details: errMsg }, { status: 500 });
+  }
+
+  // -------- Phase4: 統合 -----------------------------------------------
+  let finalSummary = "";
+  try {
+    const consolidationPrompt = `あなたはプロのコンサルタントです。与えられたフェーズ1-3の結果をもとに、ミーティング議事録を日本語で1000字以内のMarkdownにまとめてください。\n\n## メタ情報\n${metaPrompt(taskMeta)}\n\n## フェーズ1 要点\n${JSON.stringify(phase1.json)}\n\n## フェーズ2 章立て\n${JSON.stringify(phase2.json)}\n\n## フェーズ3 話者別まとめ\n${JSON.stringify(phase3.json)}\n\n## 出力フォーマット\n- タイトル行として \"# 議事メモ\" を含める\n- 適切なMarkdown見出しを用いる\n- 1000字以内に収める`;
+
+    const phase4Res = await model.generateContent(consolidationPrompt);
+    finalSummary = phase4Res.response.text();
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error(`[summarize-task] Phase4 failed:`, errMsg);
+    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
+    return NextResponse.json({ error: 'Final summary generation failed', details: errMsg }, { status: 500 });
+  }
+
+  // -------- Supabase への保存 ---------------------------------------------
+  try {
+    const { error: saveError } = await supabase.from('transcription_tasks').update({
+      phase1_output: phase1.json,
+      phase2_output: phase2.json,
+      phase3_output: phase3.json,
+      final_summary: finalSummary,
+      status: 'completed',
+      updated_at: new Date().toISOString(),
+    }).eq('id', taskId);
+
+    if (saveError) throw saveError;
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : 'Unknown DB error';
+    console.error(`[summarize-task] DB save failed for taskId ${taskId}:`, errMsg);
+    await supabase.from('transcription_tasks').update({ status: 'summarize_failed', updated_at: new Date().toISOString() }).eq('id', taskId);
+    return NextResponse.json({ error: 'Failed to save summary', details: errMsg }, { status: 500 });
+  }
+
+  // -------- 完了 -----------------------------------------------------------
+  console.log(`[summarize-task] All phases completed for taskId ${taskId}`);
+  return NextResponse.json({
+    message: 'Summarization completed',
+    taskId,
+    phase1: phase1.json,
+    phase2: phase2.json,
+    phase3: phase3.json,
+    finalSummary,
+  });
+
+  // -------- Notion 連携を非同期で呼び出し -------------------------------
+  try {
+    if (NEXT_PUBLIC_APP_URL && WEBHOOK_SECRET) {
+      fetch(`${NEXT_PUBLIC_APP_URL}/api/notion-sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+        },
+        body: JSON.stringify({ taskId }),
+      }).then(res => res.text()).then(txt => console.log(`[summarize-task] notion-sync response:`, txt)).catch(err => console.error(`[summarize-task] notion-sync fetch error:`, err));
+    } else {
+      console.warn('[summarize-task] NEXT_PUBLIC_APP_URL or WEBHOOK_SECRET not set; skipping notion-sync call.');
+    }
+  } catch (err) {
+    console.error('[summarize-task] Error triggering notion-sync:', err);
   }
 }
 
@@ -2345,6 +2147,82 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unexpected server error', details: errorMessage }, { status: 500 });
   }
 }
+
+================
+File: app/scripts/upload-slack-file.ts
+================
+#!/usr/bin/env node
+import { config } from 'dotenv';
+import { uploadSlackFileToSupabase } from '../utils/slack-to-supabase-uploader';
+
+// .envから環境変数を読み込む
+config();
+
+async function main() {
+  // コマンドライン引数からSlackファイルURLを取得
+  const slackFileUrl = process.argv[2];
+  
+  if (!slackFileUrl) {
+    console.error('エラー: Slackファイル URL が必要です');
+    console.error('使用方法: npm run upload-slack <slack-file-url>');
+    console.error('例: npm run upload-slack https://files.slack.com/files-pri/T12345-F67890/meeting.mp4');
+    process.exit(1);
+  }
+  
+  // 必要な環境変数のチェック
+  const requiredEnvVars = [
+    'SLACK_BOT_TOKEN',
+    'UPLOAD_API_ENDPOINT',
+    'WEBHOOK_SECRET',
+  ];
+  
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  if (missingVars.length > 0) {
+    console.error(`エラー: 必要な環境変数が見つかりません: ${missingVars.join(', ')}`);
+    console.error('環境変数の設定または.envファイルを確認してください');
+    process.exit(1);
+  }
+  
+  try {
+    console.log(`🚀 Slackファイルのアップロード開始: ${slackFileUrl}`);
+    
+    const result = await uploadSlackFileToSupabase({
+      slackFileUrl,
+      slackToken: process.env.SLACK_BOT_TOKEN!,
+      uploadEndpoint: process.env.UPLOAD_API_ENDPOINT!,
+      webhookSecret: process.env.WEBHOOK_SECRET!,
+      logProgress: true,
+      maxRetries: 3,
+      metadata: {
+        cli_executed_at: new Date().toISOString(),
+        cli_version: '1.0.0'
+      }
+    });
+    
+    console.log('✅ アップロード正常終了!');
+    console.log('📊 アップロード詳細:');
+    console.log(`  - ID: ${result.id}`);
+    console.log(`  - ステータス: ${result.status}`);
+    console.log(`  - ストレージパス: ${result.storage_path}`);
+    console.log(`  - ファイルサイズ: ${result.file_size} バイト`);
+    
+    if (result.status === 'processing') {
+      console.log('\n🎬 次のステップ:');
+      console.log('  ファイルは正常にアップロードされ、現在は文字起こし処理待ちです。');
+      console.log('  処理状況は Supabase の upload_logs テーブルで確認できます。');
+    }
+    
+    // 処理が完了した場合のみ終了コード0
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ アップロード失敗:', error instanceof Error ? error.message : error);
+    // エラーの場合は終了コード1
+    process.exit(1);
+  }
+}
+
+// スクリプト実行
+main();
 
 ================
 File: deno.lock
@@ -3388,6 +3266,255 @@ entrypoint = "./functions/upload_file_to_storage/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/summarize_dispatch/index.ts"
+
+================
+File: tsconfig.json
+================
+{
+  "compilerOptions": {
+    "target": "es5",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "supabase/functions/**/*"
+  ]
+}
+
+================
+File: app/api/notion-sync/route.ts
+================
+import { NextRequest, NextResponse } from 'next/server';
+import { Client as NotionClient } from '@notionhq/client';
+import type { CreatePageParameters, BlockObjectRequest } from '@notionhq/client/build/src/api-endpoints';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+// 環境変数
+const NOTION_API_KEY = process.env.NOTION_API_KEY;
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+// 初期化
+const notion = NOTION_API_KEY ? new NotionClient({ auth: NOTION_API_KEY }) : null;
+const supabase: SupabaseClient | null = (NEXT_PUBLIC_SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } })
+  : null;
+
+interface NotionSyncPayload { taskId: string; }
+
+interface TranscriptionTask {
+  id: string;
+  consultant_name?: string;
+  company_name?: string;
+  company_type?: string;
+  company_problem?: string;
+  meeting_date?: string;
+  meeting_count?: number;
+  meeting_type?: string; // lintで未使用指摘があったが、もし使うならこの型定義は残す
+  support_area?: string;
+  company_phase?: string;
+  internal_sharing_items?: string;
+  final_summary: string;
+  status: string;
+  error_message?: string;
+  notion_page_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface NotionDbMap {
+  id: string;
+  kind: 'all' | 'consultant' | 'company';
+  name: string;
+  page_id: string;
+  db_id: string;
+  updated_at: string;
+}
+
+export async function POST(req: NextRequest) {
+  // 認可
+  if (!WEBHOOK_SECRET) return NextResponse.json({ error: 'Server misconfig' }, { status: 500 });
+  const auth = req.headers.get('Authorization');
+  if (!auth || !auth.startsWith('Bearer ') || auth.substring(7) !== WEBHOOK_SECRET) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!supabase || !notion) {
+    return NextResponse.json({ error: 'Server not configured (supabase or notion)' }, { status: 500 });
+  }
+
+  let payload: NotionSyncPayload;
+  try { payload = await req.json(); }
+  catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
+  const { taskId } = payload;
+  if (!taskId) return NextResponse.json({ error: 'taskId required' }, { status: 400 });
+
+  // 1. transcription_tasks 取得
+  const { data: taskData, error: tErr } = await supabase
+    .from('transcription_tasks')
+    .select('*')
+    .eq('id', taskId)
+    .single();
+
+  const task = taskData as TranscriptionTask | null;
+
+  if (tErr || !task) {
+    return NextResponse.json({ error: 'Task not found' }, { status: 404 });
+  }
+
+  const {
+    consultant_name = 'なし',
+    company_name = 'なし',
+    company_type = 'エラー',
+    company_problem = 'なし',
+    meeting_date = 'なし',
+    meeting_count,
+    meeting_type: _meeting_type = 'エラー',
+    support_area = 'エラー',
+    company_phase = 'なし',
+    internal_sharing_items = 'なし',
+    final_summary,
+  } = task;
+
+  if (!final_summary) {
+    return NextResponse.json({ error: 'final_summary missing' }, { status: 400 });
+  }
+
+  // 2. map 取得
+  const { data: mapsRaw, error: mErr } = await supabase
+    .from('notion_db_map')
+    .select('*')
+    .in('kind', ['all', 'consultant', 'company'])
+    .in('name', [consultant_name, company_name, 'all']);
+
+  if (mErr) {
+    return NextResponse.json({ error: mErr.message }, { status: 500 });
+  }
+
+  const maps = (mapsRaw ?? []) as NotionDbMap[];
+
+  const getDb = (
+    mapsArr: NotionDbMap[],
+    kind: 'all' | 'consultant' | 'company',
+    nameVal: string,
+  ): NotionDbMap | undefined => mapsArr.find((m) => m.kind === kind && m.name === nameVal);
+
+  const allMap = getDb(maps, 'all', 'all');
+  const consMap = getDb(maps, 'consultant', consultant_name);
+  const compMap = getDb(maps, 'company', company_name);
+
+  if (!allMap || !consMap || !compMap) {
+    await supabase.from('transcription_tasks').update({ status: 'notion_failed', error_message: 'Mapping not found' }).eq('id', taskId);
+    return NextResponse.json({ error: 'Mapping not found for some target DB' }, { status: 400 });
+  }
+
+  // この時点で allMap, consMap, compMap は NotionDbMap 型であることが保証される
+  const targets: NotionDbMap[] = [allMap, consMap, compMap];
+
+  const buildProperties = () => ({
+    '面談日': { title: [{ text: { content: `${meeting_date}` } }] },
+    '企業名': { rich_text: [{ text: { content: company_name || 'なし' } }] },
+    'コンサルタント名': { rich_text: [{ text: { content: consultant_name || 'なし' } }] },
+    '企業タイプ': { status: { name: company_type || 'エラー' } },
+    '企業の課題': { rich_text: [{ text: { content: company_problem || 'なし' } }] },
+    '面談回数': { number: meeting_count ?? null },
+    '支援領域': { status: { name: support_area || 'エラー' } },
+    '企業のフェーズ': { rich_text: [{ text: { content: company_phase || 'なし' } }] },
+    '社内共有が必要な事項': { rich_text: [{ text: { content: internal_sharing_items || 'なし' } }] },
+  });
+
+  const children: BlockObjectRequest[] = [
+    {
+      type: 'paragraph',
+      paragraph: {
+        rich_text: [{ type: 'text', text: { content: final_summary } }],
+      },
+    },
+  ];
+
+  const createPage = async (dbId: string) => {
+    const properties = buildProperties() as CreatePageParameters['properties'];
+    return await notion.pages.create({ parent: { database_id: dbId }, properties, children });
+  };
+
+  try {
+    const results = await Promise.all(targets.map(t => createPage(t.db_id)));
+    await supabase.from('transcription_tasks').update({ notion_page_id: JSON.stringify({ all: results[0].id, consultant: results[1].id, company: results[2].id }) }).eq('id', taskId);
+    return NextResponse.json({ message: 'Notion pages created', ids: results.map(r => r.id) });
+  } catch (e) {
+    await supabase.from('transcription_tasks').update({ status: 'notion_failed', error_message: (e as Error).message }).eq('id', taskId);
+    return NextResponse.json({ error: 'Failed to create notion pages', details: (e as Error).message }, { status: 500 });
+  }
+}
+
+================
+File: package.json
+================
+{
+  "name": "dagitoru-mtglog",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.2.0",
+    "@notionhq/client": "^2.2.14",
+    "@supabase/auth-helpers-nextjs": "^0.9.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.4.5",
+    "next": "14.0.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.17",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.55.0",
+    "eslint-config-next": "14.0.4",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3"
+  }
+}
 
 ================
 File: README.md
