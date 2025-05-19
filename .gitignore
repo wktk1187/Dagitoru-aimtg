@@ -19,3 +19,9 @@ node_modules
 
 # Deno
 .deno_cache/
+
+# Next.js build output
+.next/
+
+# Compiled JS dist
+/dist/
