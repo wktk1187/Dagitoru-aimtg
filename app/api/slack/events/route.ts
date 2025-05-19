@@ -67,24 +67,35 @@ export async function POST(req: NextRequest) { // NextRequestを使用
         continue; 
       }
       
-      // 非同期でintakeに送信するため、awaitしない (Slackへのレスポンスを速やかに返すため)
-      fetch(`${NEXT_PUBLIC_BASE_URL}/api/slack/intake`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${WEBHOOK_SECRET}`,
-        },
-        body: JSON.stringify(payload),
-      }).then(async response => {
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`[${new Date().toISOString()}] Error forwarding to /api/slack/intake for file ${file.id}: ${response.status} ${response.statusText}`, errorText);
-        } else {
-          console.log(`[${new Date().toISOString()}] Successfully forwarded file ${file.id} to /api/slack/intake. Status: ${response.status}`);
+      // 非同期でintakeに送信し、Slackへのレスポンスをブロックしない
+      (async () => {
+        try {
+          console.log(`[${new Date().toISOString()}] Attempting to fetch: ${NEXT_PUBLIC_BASE_URL}/api/slack/intake for file ${payload.file_id}`);
+          const res = await fetch(`${NEXT_PUBLIC_BASE_URL}/api/slack/intake`, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${WEBHOOK_SECRET}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const responseBody = await res.text(); // レスポンスボディを先に取得
+
+          if (!res.ok) {
+            console.error(`[${new Date().toISOString()}] /api/slack/intake responded with error for file ${payload.file_id}. Status: ${res.status} ${res.statusText}. Body:`, responseBody);
+          } else {
+            console.log(`[${new Date().toISOString()}] /api/slack/intake responded with OK for file ${payload.file_id}. Status: ${res.status}. Body:`, responseBody);
+          }
+        } catch (err) {
+          // err が Error インスタンスかチェック
+          if (err instanceof Error) {
+            console.error(`[${new Date().toISOString()}] Failed to call /api/slack/intake for file ${payload.file_id}:`, err.message, err.stack);
+          } else {
+            console.error(`[${new Date().toISOString()}] Failed to call /api/slack/intake for file ${payload.file_id} with an unknown error:`, err);
+          }
         }
-      }).catch(error => {
-        console.error(`[${new Date().toISOString()}] Network error forwarding to /api/slack/intake for file ${file.id}:`, error);
-      });
+      })();
     }
   }
   // Slackには常に200 OKを返す
