@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'npm:next/server';
+import process from 'node:process';
 
 // Slack signing secret
 const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET ?? '';
