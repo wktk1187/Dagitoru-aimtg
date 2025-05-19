@@ -48,25 +48,36 @@ interface SlackEventBody {
 }
 
 export async function POST(req: NextRequest) {
+  console.log(`[${new Date().toISOString()}] >>> /slack/events called`);
+  console.log(`[${new Date().toISOString()}] Headers:`, Object.fromEntries(req.headers.entries()));
+  
   const rawBody = await req.text();
+  console.log(`[${new Date().toISOString()}] Raw body:`, rawBody.substring(0, 200) + '...');
+  
   let body: SlackEventBody;
   try {
     body = JSON.parse(rawBody);
-  } catch {
+    console.log(`[${new Date().toISOString()}] Parsed body:`, JSON.stringify(body, null, 2));
+  } catch (e) {
+    console.error(`[${new Date().toISOString()}] Failed to parse body:`, e);
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
   // challenge 先に処理
   if (body.type === 'url_verification') {
+    console.log(`[${new Date().toISOString()}] URL verification challenge received`);
     return NextResponse.json({ challenge: body.challenge });
   }
 
   // 署名検証
   const valid = await verifySlackSignature(req, rawBody);
   if (!valid) {
+    console.error(`[${new Date().toISOString()}] Invalid Slack signature`);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
+  console.log(`[${new Date().toISOString()}] Slack signature verification successful`);
 
   // ここで即200返す（重い処理は非同期で）
+  console.log(`[${new Date().toISOString()}] Returning 200 OK, will process event asynchronously`);
   return NextResponse.json({ ok: true });
 } 

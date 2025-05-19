@@ -107,7 +107,13 @@ export async function POST(request: NextRequest) {
     let slackPayload: any;
     try {
       slackPayload = JSON.parse(payloadJson);
-      console.log(`[${new Date().toISOString()}] Parsed payload:`, slackPayload);
+      console.log(`[${new Date().toISOString()}] Parsed payload:`, JSON.stringify(slackPayload, null, 2));
+      console.log(`[${new Date().toISOString()}] File details:`, {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        lastModified: new Date(file.lastModified).toISOString()
+      });
     } catch (e) {
       console.error(`[${new Date().toISOString()}] Failed to parse payload_json:`, e);
       return NextResponse.json({ error: 'Invalid payload_json format' }, { status: 400 });
@@ -146,6 +152,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Failed to get file info from Slack', details: errorBody }, { status: fileInfoResponse.status });
       }
       const fileInfo = await fileInfoResponse.json();
+      console.log(`[${new Date().toISOString()}] Slack files.info response:`, JSON.stringify(fileInfo, null, 2));
       slackFileUrl = fileInfo?.file?.url_private_download;
       if (!slackFileUrl) {
         console.warn(`[${new Date().toISOString()}] /api/slack/intake: url_private_download not found in files.info response. Response:`, JSON.stringify(fileInfo));
@@ -238,7 +245,7 @@ export async function POST(request: NextRequest) {
       console.error(`[${new Date().toISOString()}] /api/slack/intake: Failed to insert task to DB:`, dbError);
       return NextResponse.json({ error: 'Failed to insert task', details: dbError.message }, { status: 500 });
     }
-    console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully.`);
+    console.log(`[${new Date().toISOString()}] /api/slack/intake: Task inserted to DB successfully with data:`, JSON.stringify(taskData, null, 2));
 
     return NextResponse.json({ message: 'Upload successful and task created', storagePath });
   } catch (error) {
