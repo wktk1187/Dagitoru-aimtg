@@ -51,10 +51,7 @@ export async function POST(req: NextRequest) {
 
   // URL verification challenge
   if (body.type === 'url_verification' && typeof body.challenge === 'string') {
-    return new Response(body.challenge, {
-      status: 200,
-      headers: { 'Content-Type': 'text/plain' },
-    });
+    return NextResponse.json({ challenge: body.challenge });
   }
 
   // Verify signature for other requests
