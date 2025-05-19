@@ -1,0 +1,11 @@
+import GoTrueAdminApi from './GoTrueAdminApi.d.ts';
+import GoTrueClient from './GoTrueClient.d.ts';
+import AuthAdminApi from './AuthAdminApi.d.ts';
+import AuthClient from './AuthClient.d.ts';
+export { GoTrueAdminApi, GoTrueClient, AuthAdminApi, AuthClient };
+export * from './lib/types.d.ts';
+export * from './lib/errors.d.ts';
+export { navigatorLock, NavigatorLockAcquireTimeoutError, internals as lockInternals, } from './lib/locks.d.ts';
+//# sourceMappingURL=index.d.ts.map
+
+// denoCacheMetadata={"headers":{"last-modified":"Mon, 24 Mar 2025 22:38:51 GMT","server":"cloudflare","cf-cache-status":"HIT","content-length":"477","cf-ray":"941f7c5d7ff296a6-KIX","age":"317447","access-control-allow-origin":"*","alt-svc":"h3=\":443\"; ma=86400","content-type":"application/typescript; charset=utf-8","date":"Mon, 19 May 2025 00:30:27 GMT","cache-control":"public, max-age=31536000, immutable"},"url":"https://esm.sh/@supabase/auth-js@2.69.1/dist/module/index.d.ts","time":1747614627}

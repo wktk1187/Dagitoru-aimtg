@@ -1,6 +1,6 @@
 /// <reference lib="deno.ns" />
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-import { createClient, SupabaseClient } from "npm:@supabase/supabase-js";
+import { createClient, SupabaseClient } from "npm:@supabase/supabase-js@2.43.4";
 import "https://deno.land/std@0.224.0/dotenv/load.ts";
 
 function getEnvVar(key: string): string {
@@ -9,7 +9,7 @@ function getEnvVar(key: string): string {
   return value;
 }
 
-async function updateTaskStatus(
+async function _updateTaskStatus(
   supabase: SupabaseClient,
   taskId: string,
   status: string,
@@ -17,7 +17,7 @@ async function updateTaskStatus(
 ): Promise<void> {
   const updates: { status: string; error_message?: string; notified_at?: string } = {
     status,
-    notified_at: new Date().toISOString(),
+    // notified_at: new Date().toISOString(), // カラムが存在し、更新したい場合のみ有効化
   };
   if (errorMessage) {
     updates.error_message = errorMessage;
@@ -55,45 +55,28 @@ serve(async (req: Request) => {
     const serviceRoleKey = getEnvVar("SUPABASE_SERVICE_ROLE_KEY");
     supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    const vercelWebhookUrl = getEnvVar("VERCEL_WEBHOOK_URL");
+    // VERCEL_WEBHOOK_URL を使用した通知処理を削除
+    console.log(`Task ${taskId} (storagePath: ${storagePath}) received by process-video-task. Vercel notification via VERCEL_WEBHOOK_URL is now disabled.`);
 
-    console.log(`Notifying Vercel webhook for task ${taskId}: ${vercelWebhookUrl}`);
+    // このFunctionが他に担っていた処理があればここに残ります。
+    // 現状、Vercelへの通知が主目的だった場合、このFunctionはほとんど何もしないことになります。
+    // 必要に応じて、完了を示すステータス更新などをここで行うことができます。
+    // 例: await updateTaskStatus(supabase, taskId!, "processed_by_task_function_no_webhook");
 
-    const webhookResponse = await fetch(vercelWebhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        taskId: taskId,
-        storagePath: storagePath,
-      }),
-    });
 
-    if (!webhookResponse.ok) {
-      const errorBody = await webhookResponse.text();
-      console.error(`Vercel webhook failed for task ${taskId}: ${webhookResponse.status}`, errorBody);
-      if (supabase) {
-        await updateTaskStatus(supabase, taskId!, "webhook_failed", `Vercel webhook error: ${webhookResponse.status} - ${errorBody}`);
-      }
-      throw new Error(`Vercel webhook notification failed: ${webhookResponse.status}`);
-    }
-
-    console.log(`Vercel webhook notified successfully for task ${taskId}. Response: ${await webhookResponse.text()}`);
-    if (supabase) {
-      await updateTaskStatus(supabase, taskId!, "webhook_sent");
-    }
-
-    return new Response(JSON.stringify({ message: "Webhook notification sent to Vercel." }), {
+    return new Response(JSON.stringify({ message: "process-video-task executed. Notification via VERCEL_WEBHOOK_URL has been removed." }), {
       headers: { ...cors, "Content-Type": "application/json" },
       status: 200,
     });
 
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("Error in process-video-task (notification function):", msg);
+    console.error("Error in process-video-task (Vercel notification part removed):", msg);
     if (taskId && supabase) { 
-      await updateTaskStatus(supabase, taskId, "function_error", msg);
+      // 必要に応じてエラー時のステータス更新
+      // await updateTaskStatus(supabase, taskId, "function_error_no_webhook", msg);
     }
-    return new Response(JSON.stringify({ error: `Failed to notify Vercel: ${msg}` }), {
+    return new Response(JSON.stringify({ error: `Error in process-video-task: ${msg}` }), {
       headers: { ...cors, "Content-Type": "application/json" },
       status: 500,
     });

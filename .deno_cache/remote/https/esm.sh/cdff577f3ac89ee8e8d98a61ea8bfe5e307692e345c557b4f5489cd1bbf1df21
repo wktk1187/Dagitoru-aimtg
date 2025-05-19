@@ -1,0 +1,21 @@
+import PostgrestClient from './PostgrestClient.d.ts';
+import PostgrestQueryBuilder from './PostgrestQueryBuilder.d.ts';
+import PostgrestFilterBuilder from './PostgrestFilterBuilder.d.ts';
+import PostgrestTransformBuilder from './PostgrestTransformBuilder.d.ts';
+import PostgrestBuilder from './PostgrestBuilder.d.ts';
+import PostgrestError from './PostgrestError.d.ts';
+export { PostgrestClient, PostgrestQueryBuilder, PostgrestFilterBuilder, PostgrestTransformBuilder, PostgrestBuilder, PostgrestError, };
+declare const _default: {
+    PostgrestClient: typeof PostgrestClient;
+    PostgrestQueryBuilder: typeof PostgrestQueryBuilder;
+    PostgrestFilterBuilder: typeof PostgrestFilterBuilder;
+    PostgrestTransformBuilder: typeof PostgrestTransformBuilder;
+    PostgrestBuilder: typeof PostgrestBuilder;
+    PostgrestError: typeof PostgrestError;
+};
+export default _default;
+export type { PostgrestResponse, PostgrestResponseFailure, PostgrestResponseSuccess, PostgrestSingleResponse, PostgrestMaybeSingleResponse, } from './types.d.ts';
+export type { GetResult as UnstableGetResult } from './select-query-parser/result.d.ts';
+//# sourceMappingURL=index.d.ts.map
+
+// denoCacheMetadata={"headers":{"age":"261091","accept-ranges":"bytes","alt-svc":"h3=\":443\"; ma=86400","last-modified":"Sat, 29 Mar 2025 14:48:45 GMT","cf-cache-status":"HIT","access-control-allow-origin":"*","cache-control":"public, max-age=31536000, immutable","content-type":"application/typescript; charset=utf-8","cf-ray":"941f7c5d7ff496a6-KIX","date":"Mon, 19 May 2025 00:30:27 GMT","content-length":"1165","server":"cloudflare"},"url":"https://esm.sh/@supabase/postgrest-js@1.19.4/dist/cjs/index.d.ts","time":1747614627}

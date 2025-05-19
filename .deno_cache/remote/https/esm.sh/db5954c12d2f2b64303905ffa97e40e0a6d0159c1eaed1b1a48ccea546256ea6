@@ -1,0 +1,16 @@
+import SupabaseClient from './SupabaseClient.d.ts';
+import type { GenericSchema, SupabaseClientOptions } from './lib/types.d.ts';
+export * from 'https://esm.sh/@supabase/auth-js@2.69.1/dist/module/index.d.ts';
+export type { User as AuthUser, Session as AuthSession } from 'https://esm.sh/@supabase/auth-js@2.69.1/dist/module/index.d.ts';
+export { type PostgrestResponse, type PostgrestSingleResponse, type PostgrestMaybeSingleResponse, PostgrestError, } from 'https://esm.sh/@supabase/postgrest-js@1.19.4/dist/cjs/index.d.ts';
+export { FunctionsHttpError, FunctionsFetchError, FunctionsRelayError, FunctionsError, type FunctionInvokeOptions, FunctionRegion, } from 'https://esm.sh/@supabase/functions-js@2.4.4/dist/module/index.d.ts';
+export * from 'https://esm.sh/@supabase/realtime-js@2.11.2/dist/module/index.d.ts';
+export { default as SupabaseClient } from './SupabaseClient.d.ts';
+export type { SupabaseClientOptions, QueryResult, QueryData, QueryError } from './lib/types.d.ts';
+/**
+ * Creates a new Supabase Client.
+ */
+export declare const createClient: <Database = any, SchemaName extends string & keyof Database = "public" extends keyof Database ? "public" : string & keyof Database, Schema extends GenericSchema = Database[SchemaName] extends GenericSchema ? Database[SchemaName] : any>(supabaseUrl: string, supabaseKey: string, options?: SupabaseClientOptions<SchemaName> | undefined) => SupabaseClient<Database, SchemaName, Schema>;
+//# sourceMappingURL=index.d.ts.map
+
+// denoCacheMetadata={"headers":{"cf-cache-status":"HIT","cf-ray":"941f7c5ccf6796a6-KIX","alt-svc":"h3=\":443\"; ma=86400","content-type":"application/typescript; charset=utf-8","access-control-allow-origin":"*","date":"Mon, 19 May 2025 00:30:27 GMT","age":"94159","server":"cloudflare","accept-ranges":"bytes","content-length":"1482","cache-control":"public, max-age=31536000, immutable","last-modified":"Sat, 29 Mar 2025 14:57:46 GMT"},"url":"https://esm.sh/@supabase/supabase-js@2.49.4/dist/module/index.d.ts","time":1747614627}

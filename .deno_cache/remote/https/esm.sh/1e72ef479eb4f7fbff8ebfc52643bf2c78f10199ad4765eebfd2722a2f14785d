@@ -1,0 +1,50 @@
+import type RealtimeChannel from '../RealtimeChannel.d.ts';
+export default class Push {
+    channel: RealtimeChannel;
+    event: string;
+    payload: {
+        [key: string]: any;
+    };
+    timeout: number;
+    sent: boolean;
+    timeoutTimer: number | undefined;
+    ref: string;
+    receivedResp: {
+        status: string;
+        response: {
+            [key: string]: any;
+        };
+    } | null;
+    recHooks: {
+        status: string;
+        callback: Function;
+    }[];
+    refEvent: string | null;
+    /**
+     * Initializes the Push
+     *
+     * @param channel The Channel
+     * @param event The event, for example `"phx_join"`
+     * @param payload The payload, for example `{user_id: 123}`
+     * @param timeout The push timeout in milliseconds
+     */
+    constructor(channel: RealtimeChannel, event: string, payload?: {
+        [key: string]: any;
+    }, timeout?: number);
+    resend(timeout: number): void;
+    send(): void;
+    updatePayload(payload: {
+        [key: string]: any;
+    }): void;
+    receive(status: string, callback: Function): this;
+    startTimeout(): void;
+    trigger(status: string, response: any): void;
+    destroy(): void;
+    private _cancelRefEvent;
+    private _cancelTimeout;
+    private _matchReceive;
+    private _hasReceived;
+}
+//# sourceMappingURL=push.d.ts.map
+
+// denoCacheMetadata={"headers":{"cache-control":"public, max-age=31536000, immutable","cf-ray":"941f7c5e98e496a6-KIX","server":"cloudflare","content-length":"1315","content-type":"application/typescript; charset=utf-8","accept-ranges":"bytes","date":"Mon, 19 May 2025 00:30:27 GMT","access-control-allow-origin":"*","last-modified":"Wed, 15 Jan 2025 01:47:55 GMT","cf-cache-status":"HIT","age":"317447","alt-svc":"h3=\":443\"; ma=86400"},"url":"https://esm.sh/@supabase/realtime-js@2.11.2/dist/module/lib/push.d.ts","time":1747614627}

@@ -20,7 +20,7 @@ async function updateTaskStatus(
   supabase: SupabaseClient,
   taskId: string,
   status: string,
-  updatePayload: Record<string, any> = {}
+  updatePayload: Record<string, unknown> = {}
 ): Promise<void> {
   const { error } = await supabase
     .from("transcription_tasks")

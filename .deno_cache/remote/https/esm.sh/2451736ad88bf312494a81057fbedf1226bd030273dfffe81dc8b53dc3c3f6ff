@@ -1,0 +1,6 @@
+/* esm.sh - bufferutil@4.0.9 */
+import "/node-gyp-build@^4.3.0?target=denonext";
+export * from "/bufferutil@4.0.9/denonext/bufferutil.mjs";
+export { default } from "/bufferutil@4.0.9/denonext/bufferutil.mjs";
+
+// denoCacheMetadata={"headers":{"content-type":"application/javascript; charset=utf-8","x-esm-path":"/bufferutil@4.0.9/denonext/bufferutil.mjs","access-control-expose-headers":"X-ESM-Path","last-modified":"Tue, 22 Apr 2025 21:10:13 GMT","age":"261089","access-control-allow-origin":"*","cache-control":"public, max-age=31536000, immutable","server":"cloudflare","cf-cache-status":"HIT","date":"Mon, 19 May 2025 00:30:28 GMT","cf-ray":"941f7c63cd8196a6-KIX","alt-svc":"h3=\":443\"; ma=86400"},"url":"https://esm.sh/bufferutil@4.0.9?target=denonext","time":1747614628}

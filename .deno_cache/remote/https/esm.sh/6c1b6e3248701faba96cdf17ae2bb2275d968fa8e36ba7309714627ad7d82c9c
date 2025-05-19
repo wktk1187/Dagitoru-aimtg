@@ -1,0 +1,8 @@
+import { AuthClient } from 'https://esm.sh/@supabase/auth-js@2.69.1/dist/module/index.d.ts';
+import { SupabaseAuthClientOptions } from './types.d.ts';
+export declare class SupabaseAuthClient extends AuthClient {
+    constructor(options: SupabaseAuthClientOptions);
+}
+//# sourceMappingURL=SupabaseAuthClient.d.ts.map
+
+// denoCacheMetadata={"headers":{"content-length":"316","age":"208858","cf-cache-status":"HIT","date":"Mon, 19 May 2025 00:30:27 GMT","access-control-allow-origin":"*","last-modified":"Sat, 29 Mar 2025 14:57:47 GMT","content-type":"application/typescript; charset=utf-8","cache-control":"public, max-age=31536000, immutable","cf-ray":"941f7c5e588596a6-KIX","alt-svc":"h3=\":443\"; ma=86400","server":"cloudflare"},"url":"https://esm.sh/@supabase/supabase-js@2.49.4/dist/module/lib/SupabaseAuthClient.d.ts","time":1747614627}
