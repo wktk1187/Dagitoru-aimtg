@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'npm:next/server';
 
 // Slack signing secret
-const SLACK_SIGNING_SECRET = Deno.env.get('SLACK_SIGNING_SECRET') ?? '';
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET ?? '';
 
 /**
  * Verify Slack request signature
