@@ -1,0 +1,7 @@
+{
+  "/api/notion-sync/route": "app/api/notion-sync/route.js",
+  "/api/slack/events/route": "app/api/slack/events/route.js",
+  "/api/summarize-task/route": "app/api/summarize-task/route.js",
+  "/api/slack/intake/route": "app/api/slack/intake/route.js",
+  "/api/upload-url/route": "app/api/upload-url/route.js"
+}

@@ -11,5 +11,16 @@
       "src": "/(.*)",
       "dest": "apps/aimtg/$1"
     }
-  ]
-} 
+  ],
+  "functions": {
+    "api/upload-url/route.ts": {
+      "runtime": "node"
+    },
+    "api/slack/events/route.ts": {
+      "runtime": "edge"
+    },
+    "api/notion-sync/route.ts": {
+      "runtime": "edge"
+    }
+  }
+}

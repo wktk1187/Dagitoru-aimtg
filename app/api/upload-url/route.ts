@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'npm:next/server';
-import { createClient } from 'npm:@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
 
 // Supabaseのクライアント初期化 (環境変数からURLとanonキーを取得)
-const supabaseUrl = Deno.env.get('NEXT_PUBLIC_SUPABASE_URL');
-const supabaseAnonKey = Deno.env.get('NEXT_PUBLIC_SUPABASE_ANON_KEY');
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase URL or anon key environment variables for upload-url endpoint.');
@@ -12,9 +12,9 @@ if (!supabaseUrl || !supabaseAnonKey) {
 const supabase = supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
 
 // 内部API呼び出し認証用のシークレットキー (環境変数から取得)
-const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
-const STORAGE_BUCKET_NAME = 'recordings'; // Supabase Storageのバケット名
+const STORAGE_BUCKET_NAME = 'videos'; // Supabase Storageのバケット名
 const SIGNED_URL_TTL = 60 * 30; // 署名付きURLの有効期間（秒）：30分
 
 export async function POST(request: NextRequest) {
@@ -43,6 +43,19 @@ export async function POST(request: NextRequest) {
     if (!fileName || typeof fileName !== 'string' || !contentType || typeof contentType !== 'string') {
       throw new Error('Invalid request body: fileName and contentType are required and must be strings.');
     }
+
+    // 追加：fileNameが.mp4で終わるかチェック
+    if (!fileName.endsWith('.mp4')) {
+      console.warn(`[${new Date().toISOString()}] /api/upload-url: Invalid fileName: ${fileName}. Only .mp4 files are accepted.`);
+      return NextResponse.json({ error: 'Only .mp4 files are accepted (filename must end with .mp4)' }, { status: 400 });
+    }
+
+    // 追加：contentTypeがvideo/mp4かチェック
+    if (contentType !== 'video/mp4') {
+      console.warn(`[${new Date().toISOString()}] /api/upload-url: Invalid contentType: ${contentType}. Only video/mp4 is accepted.`);
+      return NextResponse.json({ error: 'Only video/mp4 content type is accepted' }, { status: 400 });
+    }
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error parsing request body.';
     console.error(`[${new Date().toISOString()}] /api/upload-url: Error parsing request body: ${errorMessage}`);

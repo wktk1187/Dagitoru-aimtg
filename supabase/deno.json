@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.ns", "dom"],
+    "strict": true
+  },
+  "lock": "deno.lock",
+  "tasks": {
+    "dev": "supabase functions serve --env-file ../.env.local --config ./config.toml"
+  }
+} 

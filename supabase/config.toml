@@ -2,3 +2,18 @@
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/process-video-task/index.ts"
+
+[functions.transcribe_with_whisper]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/transcribe_with_whisper/index.ts"
+
+[functions.upload_file_to_storage]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/upload_file_to_storage/index.ts"
+
+[functions.summarize_dispatch]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/summarize_dispatch/index.ts"

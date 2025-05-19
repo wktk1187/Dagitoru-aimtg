@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'npm:next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import process from 'node:process';
 
 // Slack signing secret
@@ -41,27 +41,32 @@ async function verifySlackSignature(req: NextRequest, rawBody: string): Promise<
   return diff === 0;
 }
 
+interface SlackEventBody {
+  type: string;
+  challenge?: string;
+  // 必要に応じて他のフィールドも追加
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
-  let body: Record<string, unknown> = {};
+  let body: SlackEventBody;
   try {
     body = JSON.parse(rawBody);
   } catch {
-    // ignore parse error
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  // URL verification challenge
-  if (body.type === 'url_verification' && typeof body.challenge === 'string') {
+  // challenge 先に処理
+  if (body.type === 'url_verification') {
     return NextResponse.json({ challenge: body.challenge });
   }
 
-  // Verify signature for other requests
-  const verified = await verifySlackSignature(req, rawBody);
-  if (!verified) {
+  // 署名検証
+  const valid = await verifySlackSignature(req, rawBody);
+  if (!valid) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
-  // For now, just acknowledge the event quickly.
-  // TODO: Add event-specific handling if needed.
+  // ここで即200返す（重い処理は非同期で）
   return NextResponse.json({ ok: true });
 } 

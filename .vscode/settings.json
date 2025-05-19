@@ -8,5 +8,8 @@
   },
   "[javascript]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
-  }
+  },
+  "deno.enablePaths": [
+    "./deno_only"
+  ]
 }
