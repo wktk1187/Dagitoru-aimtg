@@ -58,6 +58,7 @@ EXECUTE FUNCTION public.update_updated_at_column();
 -- サービスロールはすべての操作が可能
 CREATE POLICY "Service role can perform all operations" 
   ON public.upload_logs FOR ALL 
-  USING (auth.uid() IN (SELECT auth.uid() FROM auth.users WHERE auth.users.role = 'service_role'));
+  USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
 
 COMMENT ON TABLE public.upload_logs IS '動画ファイルのアップロード進捗と状態を追跡するテーブル'; 

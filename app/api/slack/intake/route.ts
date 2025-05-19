@@ -151,7 +151,8 @@ export async function POST(request: NextRequest) {
         'Content-Type': mimetype,
       },
       body: slackRes.body,
-    });
+      duplex: 'half',
+    } as any);
 
     if (!supabaseUploadRes.ok) {
       const errorBody = await supabaseUploadRes.text();
