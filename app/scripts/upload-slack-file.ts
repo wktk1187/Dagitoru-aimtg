@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { config } from 'dotenv';
-import { uploadSlackFileToSupabase } from '../utils/slack-to-supabase-uploader.ts';
+import { uploadSlackFileToSupabase } from '../utils/slack-to-supabase-uploader';
 
 // .envから環境変数を読み込む
 config();

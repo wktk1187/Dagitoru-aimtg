@@ -1,30 +1,32 @@
 {
-  "name": "slack-video-summary-monorepo",
+  "name": "dagitoru-mtglog",
+  "version": "0.1.0",
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
   "scripts": {
-    "dev:webhook": "npm --workspace apps/webhook-vercel run dev",
-    "build:webhook": "npm --workspace apps/webhook-vercel run build",
-    "upload-slack": "ts-node app/scripts/upload-slack-file.ts"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
   },
   "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "@notionhq/client": "^3.0.1",
-    "@slack/web-api": "^7.9.1",
-    "@supabase/supabase-js": "^2.49.4",
-    "dotenv": "^16.3.1",
-    "formdata-node": "^6.0.3",
-    "node-fetch": "^3.3.2",
-    "openai": "^4.100.0",
-    "uuid": "^11.1.0"
+    "@google/generative-ai": "^0.2.0",
+    "@notionhq/client": "^2.2.14",
+    "@supabase/auth-helpers-nextjs": "^0.9.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "dotenv": "^16.4.5",
+    "next": "14.0.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@types/dotenv": "^8.2.0",
     "@types/node": "^20.10.0",
-    "@types/uuid": "^10.0.0",
-    "ts-node": "^10.9.1",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.17",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.55.0",
+    "eslint-config-next": "14.0.4",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
     "typescript": "^5.3.3"
   }
-}
+} 

@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from 'npm:next/server';
-import { Client as NotionClient } from 'npm:@notionhq/client';
-import type { CreatePageParameters, BlockObjectRequest } from 'npm:@notionhq/client/build/src/api-endpoints';
-import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
+import { Client as NotionClient } from '@notionhq/client';
+import type { CreatePageParameters, BlockObjectRequest } from '@notionhq/client/build/src/api-endpoints';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // 環境変数
-const NOTION_API_KEY = Deno.env.get('NOTION_API_KEY');
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get('NEXT_PUBLIC_SUPABASE_URL');
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-const WEBHOOK_SECRET = Deno.env.get('WEBHOOK_SECRET');
+const NOTION_API_KEY = process.env.NOTION_API_KEY;
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 // 初期化
 const notion = NOTION_API_KEY ? new NotionClient({ auth: NOTION_API_KEY }) : null;

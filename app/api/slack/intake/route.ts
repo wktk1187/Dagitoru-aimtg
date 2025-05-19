@@ -1,16 +1,16 @@
-import { NextRequest, NextResponse } from 'npm:next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'node:crypto';
 import { Buffer } from 'node:buffer';
-import { createClient } from 'npm:@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 
 // 環境変数
-const SLACK_SIGNING_SECRET = Deno.env.get("SLACK_SIGNING_SECRET");
-const SLACK_BOT_TOKEN = Deno.env.get("SLACK_BOT_TOKEN"); 
-const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET"); 
-const NEXT_PUBLIC_APP_URL = Deno.env.get("NEXT_PUBLIC_APP_URL"); 
-
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get("NEXT_PUBLIC_SUPABASE_URL");
-const NEXT_PUBLIC_SUPABASE_ANON_KEY = Deno.env.get("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET;
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN; 
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL; 
+const NEXT_PUBLIC_SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 let supabase: ReturnType<typeof createClient> | null = null;
 if (NEXT_PUBLIC_SUPABASE_URL && NEXT_PUBLIC_SUPABASE_ANON_KEY) {

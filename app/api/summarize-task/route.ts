@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from 'npm:next/server';
-import { createClient, SupabaseClient } from 'npm:@supabase/supabase-js';
-import { GoogleGenerativeAI } from 'npm:@google/generative-ai';
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 // --- 環境変数 -----------------------------------------------------------------
-const NEXT_PUBLIC_SUPABASE_URL = Deno.env.get("NEXT_PUBLIC_SUPABASE_URL");
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"); // DB更新用にService Role Keyを推奨
-const WEBHOOK_SECRET = Deno.env.get("WEBHOOK_SECRET");
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-const NEXT_PUBLIC_APP_URL = Deno.env.get("NEXT_PUBLIC_APP_URL");
+const NEXT_PUBLIC_SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY; // DB更新用にService Role Keyを推奨
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const NEXT_PUBLIC_APP_URL = process.env.NEXT_PUBLIC_APP_URL;
 
 // --- 定数 -------------------------------------------------------------------
 const MAX_TRANSCRIPT_TOKENS = 15000; // 仮の値。実際のGeminiのモデルに合わせて調整。
