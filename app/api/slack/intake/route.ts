@@ -204,24 +204,6 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[${timestamp}] /api/slack/intake: Task inserted to DB 'transcription_tasks' successfully. Task ID: ${insertedTask?.id}`);
 
-    // 9. `upload_logs` テーブルへの記録 (オプション)
-    if (insertedTask?.id) {
-        const uploadLogData = {
-            task_id: insertedTask.id,
-            slack_file_id: slackFileId,
-            status: 'success', // intake処理全体の成功を示す
-            original_file_name: original_file_name,
-            storage_path: storagePath,
-            details: 'Successfully processed by /api/slack/intake'
-        };
-        console.log(`[${timestamp}] /api/slack/intake: Inserting into 'upload_logs':`, JSON.stringify(uploadLogData, null, 2));
-        const { error: uploadLogError } = await supabase.from('upload_logs').insert(uploadLogData);
-        if (uploadLogError) {
-            console.error(`[${timestamp}] /api/slack/intake: Failed to insert into 'upload_logs':`, uploadLogError);
-            // upload_logsへの書き込み失敗は intake の主処理の成否に影響しないため、エラーレスポンスは返さない
-        }
-    }
-
     return NextResponse.json({ message: 'Upload successful and task created', taskId: insertedTask?.id, storagePath });
 
   } catch (error) {
