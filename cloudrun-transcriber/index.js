@@ -32,6 +32,21 @@ const speechClient = new speech.SpeechClient();
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 app.post('/transcribe', async (req, res) => {
+  // 追加: 受信ヘッダーを全てログ出力
+  console.log("Headers received:", req.headers);
+
+  // 認証ヘッダーの防御的検証
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.warn("/transcribe: Missing or invalid Authorization header", authHeader);
+    return res.status(401).send("Missing or invalid Authorization header");
+  }
+  const token = authHeader.replace("Bearer ", "").trim();
+  if (token !== process.env.WEBHOOK_SECRET) {
+    console.warn("/transcribe: Unauthorized - token mismatch");
+    return res.status(401).send("Unauthorized");
+  }
+
   console.log(`/transcribe: Received request. Body:`, JSON.stringify(req.body, null, 2));
   const { signedUrl, gcsBucket, gcsDestPath, taskId } = req.body;
   if (!signedUrl || !gcsBucket || !gcsDestPath || !taskId) {
