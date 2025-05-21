@@ -204,6 +204,35 @@ export async function POST(request: NextRequest) {
     }
     console.log(`[${timestamp}] /api/slack/intake: Task inserted to DB 'transcription_tasks' successfully. Task ID: ${insertedTask?.id}`);
 
+    // 9. 文字起こしタスクの開始リクエスト（新しい部分）
+    if (insertedTask?.id) {
+      try {
+        console.log(`[${timestamp}] /api/slack/intake: Starting transcription task for ID: ${insertedTask.id}`);
+        
+        const startTaskResponse = await fetch(`${NEXT_PUBLIC_APP_URL}/api/start-task`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ taskId: insertedTask.id }),
+        });
+        
+        if (!startTaskResponse.ok) {
+          const errorBody = await startTaskResponse.text();
+          console.error(`[${timestamp}] /api/slack/intake: Failed to start transcription task. Status: ${startTaskResponse.status}, Body: ${errorBody}`);
+          // タスク開始に失敗してもファイルのアップロードは成功しているので、警告として続行
+        } else {
+          const startTaskResult = await startTaskResponse.json();
+          console.log(`[${timestamp}] /api/slack/intake: Transcription task started. Result:`, startTaskResult);
+        }
+      } catch (startTaskError) {
+        const errorMessage = startTaskError instanceof Error ? startTaskError.message : 'Unknown error starting task';
+        console.error(`[${timestamp}] /api/slack/intake: Error starting transcription task:`, errorMessage);
+        // タスク開始に失敗してもファイルのアップロードは成功しているので、警告として続行
+      }
+    }
+
     return NextResponse.json({ message: 'Upload successful and task created', taskId: insertedTask?.id, storagePath });
 
   } catch (error) {
