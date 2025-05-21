@@ -41,7 +41,7 @@ app.post('/transcribe', async (req, res) => {
     console.warn("/transcribe: Missing or invalid Authorization header", authHeader);
     return res.status(401).send("Missing or invalid Authorization header");
   }
-  const token = authHeader.replace("Bearer ", "").trim();
+  const token = authHeader.replace("Bearer ", "");
   if (token !== process.env.WEBHOOK_SECRET) {
     console.warn("/transcribe: Unauthorized - token mismatch");
     return res.status(401).send("Unauthorized");
