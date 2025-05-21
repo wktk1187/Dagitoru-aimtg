@@ -1,0 +1,27 @@
+# Default gcloudignore from https://sdk.cloud.google.com/gcloud/reference/topic/gcloudignore
+# Lines starting with '#' are comments.
+# Affects 'gcloud run deploy --source .' and other gcloud commands.
+
+.gcloudignore
+# If you would like to upload your .git directory, .gitignore file or
+# files from your .gitignore file, remove the corresponding line
+# below:
+.git
+.gitignore
+
+# Node.js dependencies:
+node_modules/
+
+# Specific to this project:
+.deno_cache/
+*.log
+*.test.*
+repomix-output.txt
+
+# Sensitive files (if deployment context is not carefully managed)
+# These are usually handled by placing .gcloudignore at the repo root
+# but added here for explicitness if running deploy from within cloudrun-transcriber
+# .env
+# .env.local
+# .env.example
+# service-account.json 
