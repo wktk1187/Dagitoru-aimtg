@@ -36,13 +36,12 @@ app.post('/transcribe', async (req, res) => {
   console.log("Headers received:", req.headers);
 
   // 認証ヘッダーの防御的検証
-  const authHeader = req.headers["authorization"];
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.warn("/transcribe: Missing or invalid Authorization header", authHeader);
-    return res.status(401).send("Missing or invalid Authorization header");
+  const authHeader = req.headers["x-vercel-secret"];
+  if (!authHeader) {
+    console.warn("/transcribe: Missing x-vercel-secret header", authHeader);
+    return res.status(401).send("Missing x-vercel-secret header");
   }
-  const token = authHeader.replace("Bearer ", "");
-  if (token !== process.env.WEBHOOK_SECRET) {
+  if (authHeader !== process.env.WEBHOOK_SECRET) {
     console.warn("/transcribe: Unauthorized - token mismatch");
     return res.status(401).send("Unauthorized");
   }

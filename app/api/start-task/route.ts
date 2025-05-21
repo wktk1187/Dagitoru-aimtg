@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     const response = await fetch(CLOUD_RUN_TRANSCRIBE_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+        'x-vercel-secret': WEBHOOK_SECRET,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(cloudRunPayload),
