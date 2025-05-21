@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
     const { data: signedUrlData, error: signedUrlError } = await supabase
       .storage
       .from('videos')
-      .createSignedUrl(taskData.storage_path, 60 * 30); // 30分有効
+      .createSignedUrl(taskData.storage_path, { expiresIn: 60 * 30 }); // 30分有効
 
     if (signedUrlError || !signedUrlData?.signedUrl) {
       console.error(`[${timestamp}] /api/start-task: Failed to get signed URL:`, signedUrlError);
