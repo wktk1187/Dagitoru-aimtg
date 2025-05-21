@@ -9,17 +9,33 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// === 追加: 一時ファイル用ディレクトリを定義 ===
+const AUDIO_DIR = path.join(os.tmpdir(), 'audio');
+const VIDEO_DIR = path.join(os.tmpdir(), 'video');
+const CREDS_PATH = path.join(os.tmpdir(), 'gcp-creds.json');
+
+// ディレクトリ作成（なければ）
+fs.mkdirSync(AUDIO_DIR, { recursive: true });
+fs.mkdirSync(VIDEO_DIR, { recursive: true });
+
 if (process.env.GOOGLE_CREDENTIALS_BASE64) {
   try {
     const decodedCredentials = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf-8');
-    const credsPath = '/tmp/gcp-creds.json'; // Cloud Runでは /tmp が書き込み可能なメモリファイルシステムです
-    fs.writeFileSync(credsPath, decodedCredentials);
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = credsPath;
-    console.log(`GOOGLE_APPLICATION_CREDENTIALS set to ${credsPath}`); // 起動ログで確認用
+    fs.writeFileSync(CREDS_PATH, decodedCredentials);
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = CREDS_PATH;
+    console.log(`✅ Wrote Google credentials to ${CREDS_PATH}`);
+    // 健全性チェック
+    try {
+      const raw = fs.readFileSync(CREDS_PATH, 'utf8');
+      JSON.parse(raw);
+      console.log('✅ GCP Credentials OK');
+    } catch (err) {
+      console.error('❌ GCP Credentials are BROKEN:', err.message);
+      process.exit(1);
+    }
   } catch (error) {
     console.error('CRITICAL: Failed to process GOOGLE_CREDENTIALS_BASE64. Application may not authenticate with Google Cloud services.', error);
-    // エラー発生時の挙動を考慮（例: プロセス終了も検討）
-    // process.exit(1);
+    process.exit(1);
   }
 }
 
@@ -53,8 +69,9 @@ app.post('/transcribe', async (req, res) => {
     return res.status(400).json({ error: 'Missing required parameters' });
   }
 
-  const tmpVideoPath = path.join(os.tmpdir(), `input_${Date.now()}.mp4`);
-  const tmpAudioPath = path.join(os.tmpdir(), `audio_${Date.now()}.mp3`);
+  // ここで一時ファイル名をサブディレクトリ＋prefix付きで生成
+  const tmpVideoPath = path.join(VIDEO_DIR, `video_${taskId}_${Date.now()}.mp4`);
+  const tmpAudioPath = path.join(AUDIO_DIR, `audio_${taskId}_${Date.now()}.mp3`);
 
   try {
     // 1. Supabase署名付きURLから動画ダウンロード

@@ -24,4 +24,13 @@ gcp_creds.json
 
 # Test files
 *.test.*
-repomix-output.txt 
+repomix-output.txt
+
+# Video files
+*.mp4
+*.webm
+*.mov
+*.mp3
+
+# Remove node_modules from the list
+node_modules 
