@@ -120,24 +120,25 @@ export async function POST(request: NextRequest) {
       taskId
     };
     
-    const cloudRunResponse = await fetch(CLOUD_RUN_TRANSCRIBE_URL, {
+    const response = await fetch(CLOUD_RUN_TRANSCRIBE_URL, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Authorization': `Bearer ${WEBHOOK_SECRET}`,
+        'Content-Type': 'application/json',
       },
-      body: JSON.stringify(cloudRunPayload)
+      body: JSON.stringify(cloudRunPayload),
     });
 
-    if (!cloudRunResponse.ok) {
-      const errorText = await cloudRunResponse.text();
-      console.error(`[${timestamp}] /api/start-task: Cloud Run request failed:`, cloudRunResponse.status, errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`[${timestamp}] /api/start-task: Cloud Run request failed:`, response.status, errorText);
       
       // ステータスを 'error' に更新
       await supabase
         .from('transcription_tasks')
         .update({ 
           status: 'failed', 
-          error_message: `Cloud Run request failed: ${cloudRunResponse.status} - ${errorText}`,
+          error_message: `Cloud Run request failed: ${response.status} - ${errorText}`,
           updated_at: new Date().toISOString() 
         })
         .eq('id', taskId);
@@ -145,11 +146,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         error: 'Cloud Run request failed', 
         details: errorText,
-        status: cloudRunResponse.status 
+        status: response.status 
       }, { status: 502 });
     }
 
-    const cloudRunResult = await cloudRunResponse.json();
+    const cloudRunResult = await response.json();
     console.log(`[${timestamp}] /api/start-task: Cloud Run request successful:`, JSON.stringify(cloudRunResult, null, 2));
 
     return NextResponse.json({
