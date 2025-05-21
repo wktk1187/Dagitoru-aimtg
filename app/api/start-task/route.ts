@@ -85,6 +85,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Task data missing or invalid' }, { status: 400 });
     }
 
+    // === 冪等性チェック: 既に処理中・完了済みならスキップ ===
+    if (["processing", "transcribed", "completed", "failed"].includes(taskData.status)) {
+      console.warn(`[${timestamp}] /api/start-task: Task ${taskId} is already in status '${taskData.status}'. Skipping duplicate execution.`);
+      return NextResponse.json({
+        message: `Task already processed or in progress (status: ${taskData.status})`,
+        taskId,
+        status: taskData.status
+      }, { status: 200 });
+    }
+
     // 6. ステータスを 'processing' に更新
     const { error: updateError } = await supabase
       .from('transcription_tasks')
